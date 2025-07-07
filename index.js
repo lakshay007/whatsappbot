@@ -417,33 +417,44 @@ client.on('message_create', async message => {
             }
 
             try {
-                // Fetch recent messages
-                const messages = await chat.fetchMessages({ limit: deleteCount + 1 }); // +1 to exclude the purge command itself
+                // Fetch recent messages (get extra to account for the purge command)
+                const messages = await chat.fetchMessages({ limit: deleteCount + 10 }); // Get more to ensure we have enough
                 
                 if (messages.length <= 1) {
                     return message.reply('No messages to delete.');
                 }
 
-                // Remove the purge command message from the list
-                const messagesToDelete = messages.slice(1, deleteCount + 1);
+                // Find the purge command message and remove it from the list
+                const purgeCommandIndex = messages.findIndex(msg => msg.id === message.id);
+                let messagesToDelete;
+                
+                if (purgeCommandIndex !== -1) {
+                    // Remove the purge command and get the next N messages (most recent ones)
+                    messagesToDelete = messages.slice(0, purgeCommandIndex).slice(0, deleteCount);
+                } else {
+                    // Fallback: just take the first N messages (most recent)
+                    messagesToDelete = messages.slice(0, deleteCount);
+                }
                 
                 console.log(`🗑️ Attempting to delete ${messagesToDelete.length} messages in ${chat.name}`);
+                console.log(`📋 Message IDs to delete: ${messagesToDelete.map(m => m.id._serialized.slice(-4)).join(', ')}`);
                 
                 let deletedCount = 0;
                 let failedCount = 0;
                 
-                for (const msg of messagesToDelete) {
+                for (let i = 0; i < messagesToDelete.length; i++) {
+                    const msg = messagesToDelete[i];
                     try {
                         // Try to delete the message
-                        const result = await msg.delete(true); // true = delete for everyone
+                        await msg.delete(true); // true = delete for everyone
                         deletedCount++;
-                        console.log(`✅ Deleted message from ${msg.author || msg.from}`);
+                        console.log(`✅ Deleted message ${i+1}/${messagesToDelete.length} from ${msg.author || msg.from} (ID: ${msg.id._serialized.slice(-4)})`);
                         
                         // Small delay between deletions to avoid rate limiting
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 200));
                     } catch (deleteError) {
                         failedCount++;
-                        console.error(`❌ Failed to delete message from ${msg.author || msg.from}:`, deleteError.message);
+                        console.error(`❌ Failed to delete message ${i+1}/${messagesToDelete.length} from ${msg.author || msg.from}:`, deleteError.message);
                         // Continue with other messages
                     }
                 }
