@@ -5,7 +5,7 @@ require('dotenv').config();
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
 
 // Bot health monitoring variables
 let isReady = false;
@@ -335,7 +335,7 @@ client.on('message_create', async message => {
 
             const authorId = message.author;
             const senderIsAdmin = chat.participants.find(p => p.id._serialized === authorId)?.isAdmin;
-            const senderIsOwner = authorId === '7428233446@c.us';
+            const senderIsOwner = authorId === '917428233446@c.us';
 
             if (!senderIsAdmin && !senderIsOwner) {
                 return message.reply('You need to be a group admin to use this command.');
@@ -350,7 +350,7 @@ client.on('message_create', async message => {
 
             const userToKickId = message.mentionedIds[0];
 
-            if (userToKickId === '7428233446@c.us') {
+            if (userToKickId === '917428233446@c.us') {
                 return message.reply("I'm not allowed to do that.");
             }
 
