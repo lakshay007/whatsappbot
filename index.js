@@ -381,6 +381,96 @@ client.on('message_create', async message => {
                 console.error('Failed to kick user:', err);
                 await message.reply('Failed to remove the user. Please check my permissions.');
             }
+        }
+        
+        // PURGE COMMAND
+        else if (message.body.startsWith('?purge')) {
+            const chat = await message.getChat();
+            if (!chat.isGroup) {
+                return message.reply('This command can only be used in a group.');
+            }
+
+            const authorId = message.author;
+            const senderIsAdmin = chat.participants.find(p => p.id._serialized === authorId)?.isAdmin;
+            const senderIsOwner = authorId === '917428233446@c.us';
+
+            if (!senderIsAdmin && !senderIsOwner) {
+                return message.reply('You need to be a group admin to use this command.');
+            }
+
+            const botId = client.info.wid._serialized;
+            const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
+
+            if (!botIsAdmin) {
+                return message.reply('I need to be an admin to delete messages.');
+            }
+
+            // Parse the number of messages to delete
+            const args = message.body.split(' ');
+            if (args.length !== 2) {
+                return message.reply('Usage: ?purge <number>\nExample: ?purge 10');
+            }
+
+            const deleteCount = parseInt(args[1]);
+            if (isNaN(deleteCount) || deleteCount < 1 || deleteCount > 100) {
+                return message.reply('Please provide a valid number between 1 and 100.');
+            }
+
+            try {
+                // Fetch recent messages
+                const messages = await chat.fetchMessages({ limit: deleteCount + 1 }); // +1 to exclude the purge command itself
+                
+                if (messages.length <= 1) {
+                    return message.reply('No messages to delete.');
+                }
+
+                // Remove the purge command message from the list
+                const messagesToDelete = messages.slice(1, deleteCount + 1);
+                
+                console.log(`🗑️ Attempting to delete ${messagesToDelete.length} messages in ${chat.name}`);
+                
+                let deletedCount = 0;
+                for (const msg of messagesToDelete) {
+                    try {
+                        // Check if message can be deleted (bot can only delete messages in groups if it's admin)
+                        if (msg.fromMe || chat.isGroup) {
+                            await msg.delete(true); // true = delete for everyone
+                            deletedCount++;
+                        }
+                    } catch (deleteError) {
+                        console.error('Failed to delete individual message:', deleteError);
+                        // Continue with other messages
+                    }
+                }
+
+                // Delete the purge command message itself
+                try {
+                    await message.delete(true);
+                } catch (deleteError) {
+                    console.error('Failed to delete purge command message:', deleteError);
+                }
+
+                if (deletedCount > 0) {
+                    console.log(`✅ Successfully deleted ${deletedCount} messages`);
+                    // Send a temporary confirmation that will auto-delete
+                    const confirmMsg = await chat.sendMessage(`Deleted ${deletedCount} messages.`);
+                    
+                    // Auto-delete the confirmation message after 3 seconds
+                    setTimeout(async () => {
+                        try {
+                            await confirmMsg.delete(true);
+                        } catch (error) {
+                            console.error('Failed to delete confirmation message:', error);
+                        }
+                    }, 3000);
+                } else {
+                    await message.reply('No messages could be deleted. Check permissions.');
+                }
+
+            } catch (err) {
+                console.error('Failed to purge messages:', err);
+                await message.reply('Failed to delete messages. Make sure I have the necessary permissions.');
+            }
         } 
         
         // BOT STATUS COMMAND
