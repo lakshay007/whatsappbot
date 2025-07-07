@@ -436,9 +436,10 @@ client.on('message_create', async message => {
                 let messagesToDelete;
                 
                 if (purgeCommandIndex !== -1) {
-                    // Remove the purge command and get the previous N messages (before the command)
-                    messagesToDelete = messages.slice(0, purgeCommandIndex).slice(0, deleteCount);
-                    console.log(`✂️ Using messages from index 0 to ${Math.min(purgeCommandIndex-1, deleteCount-1)}`);
+                    // Get the N messages that came immediately before the purge command
+                    const startIndex = Math.max(0, purgeCommandIndex - deleteCount);
+                    messagesToDelete = messages.slice(startIndex, purgeCommandIndex);
+                    console.log(`✂️ Using messages from index ${startIndex} to ${purgeCommandIndex - 1} (messages right before purge command)`);
                 } else {
                     // Fallback: exclude the first message (likely the purge command) and take next N
                     messagesToDelete = messages.slice(1, deleteCount + 1);
