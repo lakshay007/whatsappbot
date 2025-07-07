@@ -509,7 +509,8 @@ client.on('message_create', async message => {
         // CHECK FOR REPLIES TO BOT OR MENTIONS
         else {
             const replyCheck = await isReplyToBot(message);
-            const mentionCheck = await isMentioned(message);
+            // Skip mention check for bot's own messages to prevent infinite loops
+            const mentionCheck = message.fromMe ? false : await isMentioned(message);
             
             if (replyCheck.isReply || mentionCheck) {
                 const responseType = replyCheck.isReply ? 'reply' : 'mention';
