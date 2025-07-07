@@ -430,15 +430,20 @@ client.on('message_create', async message => {
                 console.log(`🗑️ Attempting to delete ${messagesToDelete.length} messages in ${chat.name}`);
                 
                 let deletedCount = 0;
+                let failedCount = 0;
+                
                 for (const msg of messagesToDelete) {
                     try {
-                        // Check if message can be deleted (bot can only delete messages in groups if it's admin)
-                        if (msg.fromMe || chat.isGroup) {
-                            await msg.delete(true); // true = delete for everyone
-                            deletedCount++;
-                        }
+                        // Try to delete the message
+                        const result = await msg.delete(true); // true = delete for everyone
+                        deletedCount++;
+                        console.log(`✅ Deleted message from ${msg.author || msg.from}`);
+                        
+                        // Small delay between deletions to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 100));
                     } catch (deleteError) {
-                        console.error('Failed to delete individual message:', deleteError);
+                        failedCount++;
+                        console.error(`❌ Failed to delete message from ${msg.author || msg.from}:`, deleteError.message);
                         // Continue with other messages
                     }
                 }
@@ -451,20 +456,26 @@ client.on('message_create', async message => {
                 }
 
                 if (deletedCount > 0) {
-                    console.log(`✅ Successfully deleted ${deletedCount} messages`);
-                    // Send a temporary confirmation that will auto-delete
-                    const confirmMsg = await chat.sendMessage(`Deleted ${deletedCount} messages.`);
+                    console.log(`✅ Successfully deleted ${deletedCount} messages, ${failedCount} failed`);
                     
-                    // Auto-delete the confirmation message after 3 seconds
+                    let confirmText = `Deleted ${deletedCount} messages.`;
+                    if (failedCount > 0) {
+                        confirmText += ` (${failedCount} couldn't be deleted - likely too old or permission restrictions)`;
+                    }
+                    
+                    // Send a temporary confirmation that will auto-delete
+                    const confirmMsg = await chat.sendMessage(confirmText);
+                    
+                    // Auto-delete the confirmation message after 5 seconds (longer to read the details)
                     setTimeout(async () => {
                         try {
                             await confirmMsg.delete(true);
                         } catch (error) {
                             console.error('Failed to delete confirmation message:', error);
                         }
-                    }, 3000);
+                    }, 5000);
                 } else {
-                    await message.reply('No messages could be deleted. Check permissions.');
+                    await message.reply('No messages could be deleted. This usually means messages are too old or there are permission restrictions.');
                 }
 
             } catch (err) {
