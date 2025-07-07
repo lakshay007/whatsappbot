@@ -460,8 +460,8 @@ client.on('message_create', async message => {
                         deletedCount++;
                         console.log(`✅ Deleted message ${i+1}/${messagesToDelete.length} from ${msg.author || msg.from} (ID: ${msg.id._serialized.substring(msg.id._serialized.length-8)})`);
                         
-                        // Small delay between deletions to avoid rate limiting
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                        // Longer delay between deletions to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     } catch (deleteError) {
                         failedCount++;
                         console.error(`❌ Failed to delete message ${i+1}/${messagesToDelete.length} from ${msg.author || msg.from}:`, deleteError.message);
