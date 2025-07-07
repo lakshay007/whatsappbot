@@ -275,14 +275,21 @@ async function isReplyToBot(message) {
 }
 
 // Function to get AI response from Gemini
-async function getAIResponse(userMessage, senderName, context = null) {
+async function getAIResponse(userMessage, senderName, context = null, contextType = 'reply') {
     try {
         // Update heartbeat on AI activity
         lastHeartbeat = Date.now();
         
         let prompt = `You are chotu - a quick-witted, clever person who responds naturally on WhatsApp. ${senderName} `;
 
-        if (context) {
+        if (context && contextType === 'quoted_context') {
+            prompt += `mentioned you while replying to someone else's message.
+
+CONTEXT: ${context}
+${senderName}'s message mentioning you: "${userMessage}"
+
+Respond to ${senderName}, considering what the other person said. You can comment on, react to, or build off the quoted message.`;
+        } else if (context) {
             prompt += `replied to your message "${context}" with: "${userMessage}"
 
 Respond to their reply, considering the conversation flow.`;
@@ -410,10 +417,35 @@ client.on('message_create', async message => {
                     console.log(`🔄 Replying with context from: "${originalMessage}"`);
                     console.log(`🤔 Generating AI response for ${senderName}...`);
                     aiResponse = await getAIResponse(message.body, senderName, originalMessage);
-                } else {
-                    // Regular mention response
-                    console.log(`🤔 Generating AI response for ${senderName}...`);
-                    aiResponse = await getAIResponse(message.body, senderName);
+                } else if (mentionCheck) {
+                    // Check if this mention is a reply to someone else's message (not the bot's)
+                    let contextMessage = null;
+                    if (message.hasQuotedMsg) {
+                        try {
+                            const quotedMsg = await message.getQuotedMessage();
+                            const botId = client.info.wid._serialized;
+                            
+                            // If it's NOT a reply to the bot's message, use it as context
+                            if (!quotedMsg.fromMe && quotedMsg.author !== botId && quotedMsg.from !== botId) {
+                                const quotedContact = await quotedMsg.getContact();
+                                const quotedSenderName = quotedContact.pushname || quotedContact.name || 'Someone';
+                                contextMessage = `${quotedSenderName} said: "${quotedMsg.body || quotedMsg.caption || 'media message'}"`;
+                                console.log(`🔗 Got context from quoted message: ${contextMessage}`);
+                            }
+                        } catch (error) {
+                            console.error('❌ Error getting quoted message context:', error);
+                        }
+                    }
+                    
+                    if (contextMessage) {
+                        // Mention with context from another person's message
+                        console.log(`🤔 Generating AI response for ${senderName} with quoted context...`);
+                        aiResponse = await getAIResponse(message.body, senderName, contextMessage, 'quoted_context');
+                    } else {
+                        // Regular mention response
+                        console.log(`🤔 Generating AI response for ${senderName}...`);
+                        aiResponse = await getAIResponse(message.body, senderName);
+                    }
                 }
                 
                 await message.reply(aiResponse);
