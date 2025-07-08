@@ -1043,8 +1043,12 @@ client.on('message_create', async message => {
                 }
                 
                 // Check if AI wants to execute a command
-                if (aiResponse.startsWith('EXECUTE:')) {
-                    await executeNaturalCommand(message, aiResponse, chat, senderName);
+                const executeMatch = aiResponse.match(/EXECUTE:([A-Z]+):(.+)/);
+                if (executeMatch) {
+                    const [fullMatch, command, params] = executeMatch;
+                    const executeCommand = `EXECUTE:${command}:${params}`;
+                    console.log(`🎯 Detected natural command: ${executeCommand}`);
+                    await executeNaturalCommand(message, executeCommand, chat, senderName);
                 } else {
                     await message.reply(aiResponse);
                 }
