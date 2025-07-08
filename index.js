@@ -597,14 +597,8 @@ client.on('message_create', async message => {
             const options = parts.slice(1);
             
             try {
-                // Create poll options array with required format
-                const pollOptions = options.map((option, index) => ({
-                    name: option,
-                    localId: index
-                }));
-                
-                // Create native WhatsApp poll
-                const poll = new Poll(question, pollOptions);
+                // Create native WhatsApp poll - just pass the options array directly
+                const poll = new Poll(question, options);
                 
                 // Send the poll
                 await chat.sendMessage(poll);
