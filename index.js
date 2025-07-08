@@ -625,7 +625,7 @@ client.on('message_create', async message => {
         
         // HELP COMMAND
         else if (message.body === '?help') {
-            const helpMessage = `🤖 BOT COMMANDS HELP\n\n` +
+            const helpMessage = `Chotu helper commands\n\n` +
                 `👥 GROUP MANAGEMENT:\n` +
                 `   ?kick @user - Remove user from group (Admin only)\n` +
                 `   ?purge <number> - Delete recent messages (Admin only)\n` +
