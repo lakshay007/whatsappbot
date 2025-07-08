@@ -623,13 +623,50 @@ client.on('message_create', async message => {
             }
         }
         
+        // WELCOME COMMAND
+        else if (message.body.startsWith('?welcome ')) {
+            const chat = await message.getChat();
+            const welcomeText = message.body.substring(9); // Remove "?welcome "
+            
+            let userName = '';
+            let welcomeMessage = '';
+            
+            // Check if someone was mentioned
+            if (message.mentionedIds && message.mentionedIds.length > 0) {
+                try {
+                    const targetUserId = message.mentionedIds[0];
+                    const contact = await client.getContactById(targetUserId);
+                    userName = contact.pushname || contact.name || 'there';
+                    
+                    welcomeMessage = `Welcome ${userName}! I'm chotu your helper. Try out ?help to see a list of commands and you can talk to me in natural language as well.`;
+                    
+                    await message.reply(welcomeMessage);
+                    console.log(`👋 Welcomed mentioned user: ${userName}`);
+                    
+                } catch (error) {
+                    console.error('❌ Error getting mentioned user:', error);
+                    await message.reply("Couldn't get that user's info, but welcome to the group!");
+                }
+            } else if (welcomeText.trim()) {
+                // Welcome by name (no mention)
+                userName = welcomeText.trim();
+                welcomeMessage = `Welcome ${userName}! I'm chotu your helper. Try out ?help to see a list of commands and you can talk to me in natural language as well.`;
+                
+                await message.reply(welcomeMessage);
+                console.log(`👋 Welcomed user by name: ${userName}`);
+            } else {
+                await message.reply('Usage: ?welcome @user or ?welcome username\n\nExample: ?welcome @john or ?welcome john');
+            }
+        }
+        
         // HELP COMMAND
         else if (message.body === '?help') {
             const helpMessage = `Chotu helper commands\n\n` +
                 `👥 GROUP MANAGEMENT:\n` +
                 `   ?kick @user - Remove user from group (Admin only)\n` +
                 `   ?purge <number> - Delete recent messages (Admin only)\n` +
-                `   Example: ?purge 10\n\n` +
+                `   ?welcome @user or ?welcome username - Welcome someone\n` +
+                `   Example: ?purge 10, ?welcome @john\n\n` +
                 `🖼️ USER INFO:\n` +
                 `   ?avatar @user - Get user's profile picture\n` +
                 `   Example: ?avatar @john\n\n` +
