@@ -1188,9 +1188,9 @@ client.on('message_create', async message => {
                 return message.reply('Usage: ?rename oldname:newname\nExample: ?rename old_document.pdf:new_document.pdf');
             }
             
-            const [oldName, newName] = renameText.split(':').map(name => name.trim());
+            const [oldName, newNameInput] = renameText.split(':').map(name => name.trim());
             
-            if (!oldName || !newName) {
+            if (!oldName || !newNameInput) {
                 return message.reply('Usage: ?rename oldname:newname\nBoth old and new names are required.');
             }
             
@@ -1215,6 +1215,15 @@ client.on('message_create', async message => {
                     resultText += `\nPlease be more specific with the filename.`;
                     await message.reply(resultText);
                     return;
+                }
+                
+                // Preserve file extension if not provided in new name
+                const originalExt = path.extname(fileToRename.filename);
+                let newName = newNameInput;
+                
+                // If new name doesn't have an extension, add the original extension
+                if (!path.extname(newName) && originalExt) {
+                    newName = newName + originalExt;
                 }
                 
                 // Check if new name already exists
