@@ -578,14 +578,20 @@ client.on('message_create', async message => {
         else if (message.body.startsWith('?poll ')) {
             const chat = await message.getChat();
             
-            // Parse poll command: ?poll what should we eat, pizza, burger, sushi
-            const pollText = message.body.substring(6); // Remove "?poll "
+            // Parse poll command: ?poll [-m] question, option1, option2, option3
+            let pollText = message.body.substring(6); // Remove "?poll "
+            
+            // Check for -m flag (multi-select)
+            const isMultiSelect = pollText.startsWith('-m ');
+            if (isMultiSelect) {
+                pollText = pollText.substring(3); // Remove "-m " flag
+            }
             
             // Split by commas and trim whitespace
             const parts = pollText.split(',').map(part => part.trim());
             
             if (parts.length < 3) {
-                return message.reply('Usage: ?poll question, option1, option2, option3\n\nExample: ?poll what should we eat, pizza, burger, sushi');
+                return message.reply('Usage: ?poll [-m] question, option1, option2, option3\n\nExample: ?poll what should we eat, pizza, burger, sushi\nMulti-select: ?poll -m fav food, pizza, sushi');
             }
             
             if (parts.length > 13) { // 1 question + 12 options max (WhatsApp limit)
@@ -597,18 +603,45 @@ client.on('message_create', async message => {
             const options = parts.slice(1);
             
             try {
-                // Create native WhatsApp poll - just pass the options array directly
-                const poll = new Poll(question, options);
+                // Create poll options with allowMultipleAnswers
+                const pollOptions = {
+                    allowMultipleAnswers: isMultiSelect
+                };
+                
+                // Create native WhatsApp poll
+                const poll = new Poll(question, options, pollOptions);
                 
                 // Send the poll
                 await chat.sendMessage(poll);
                 
-                console.log(`📊 Created native WhatsApp poll: "${question}" with ${options.length} options`);
+                const pollType = isMultiSelect ? 'multi-select' : 'single-select';
+                console.log(`📊 Created ${pollType} WhatsApp poll: "${question}" with ${options.length} options`);
                 
             } catch (error) {
                 console.error('❌ Error creating poll:', error);
                 await message.reply('Sorry, there was an error creating the poll. Make sure your WhatsApp supports polls.');
             }
+        }
+        
+        // HELP COMMAND
+        else if (message.body === '?help') {
+            const helpMessage = `🤖 BOT COMMANDS HELP\n\n` +
+                `👥 GROUP MANAGEMENT:\n` +
+                `   ?kick @user - Remove user from group (Admin only)\n` +
+                `   ?purge <number> - Delete recent messages (Admin only)\n` +
+                `   Example: ?purge 10\n\n` +
+                `🖼️ USER INFO:\n` +
+                `   ?avatar @user - Get user's profile picture\n` +
+                `   Example: ?avatar @john\n\n` +
+                `📊 POLLS:\n` +
+                `   ?poll question, option1, option2, option3\n` +
+                `   ?poll -m question, option1, option2, option3 (multi-select)\n` +
+                `   Example: ?poll what should we eat, pizza, burger, sushi\n` +
+                `   Example: ?poll -m fav food, pizza, burger, sushi\n` +
+                `   • Creates native WhatsApp poll with tap-to-vote\n` +
+                `   • Up to 12 options allowed\n\n`;
+            
+            await message.reply(helpMessage);
         }
         
         // BOT STATUS COMMAND
