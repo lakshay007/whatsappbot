@@ -739,8 +739,8 @@ client.on('message_create', async message => {
         // Update heartbeat on message activity
         lastHeartbeat = Date.now();
         
-        // AUTO-STORE DOCUMENTS
-        if (message.hasMedia) {
+        // AUTO-STORE DOCUMENTS (only from users, not from bot itself)
+        if (message.hasMedia && !message.fromMe) {
             const chat = await message.getChat();
             const media = await message.downloadMedia();
             
@@ -770,23 +770,6 @@ client.on('message_create', async message => {
                         const sizeKB = Math.round(media.data.length * 0.75 / 1024); // Approximate size from base64
                         
                         console.log(`💾 Stored document: ${finalFilename} (${sizeKB}KB) in ${chat.isGroup ? chat.name : 'private chat'}`);
-                        
-                        // Send confirmation (optional - you can remove this if you don't want confirmations)
-                        setTimeout(async () => {
-                            try {
-                                const confirmMsg = await message.reply(`💾 Stored "${finalFilename}" - use ?fetch to retrieve it later`);
-                                // Auto-delete confirmation after 3 seconds
-                                setTimeout(async () => {
-                                    try {
-                                        await confirmMsg.delete(true);
-                                    } catch (error) {
-                                        // Ignore deletion errors
-                                    }
-                                }, 3000);
-                            } catch (error) {
-                                // Ignore confirmation errors
-                            }
-                        }, 500);
                         
                     } catch (error) {
                         console.error('❌ Error storing document:', error);
