@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
@@ -16,9 +16,7 @@ let healthCheckInterval;
 let keepAliveInterval;
 let isRestarting = false;
 
-// Poll storage system
-const activePolls = new Map(); // Map of pollId -> poll data
-let pollCounter = 0;
+// Native WhatsApp polls - no storage needed!
 
 // Create client with optimized settings
 const client = new Client({
@@ -576,271 +574,46 @@ client.on('message_create', async message => {
             }
         } 
         
-        // POLL COMMAND
-        else if (message.body.startsWith('?poll ') || message.body.startsWith('?vote ') || message.body.startsWith('?pollresults ') || message.body === '?polls' || message.body.startsWith('?closepoll ') || message.body === '?pollhelp') {
+        // POLL COMMAND - Native WhatsApp Polls
+        else if (message.body.startsWith('?poll ')) {
             const chat = await message.getChat();
             
-            // CREATE POLL
-            if (message.body.startsWith('?poll ')) {
-                // Parse poll command: ?poll what to eat, sushi, pizza, burger
-                const pollText = message.body.substring(6); // Remove "?poll "
-                
-                // Split by commas and trim whitespace
-                const parts = pollText.split(',').map(part => part.trim());
-                
-                if (parts.length < 3) {
-                    return message.reply('Usage: ?poll question, option1, option2, option3\n\nExample: ?poll what should we eat, pizza, burger, sushi');
-                }
-                
-                if (parts.length > 11) { // 1 question + 10 options max
-                    return message.reply('Maximum 10 options allowed per poll.');
-                }
-                
-                // First part is question, rest are options
-                const question = parts[0];
-                const options = parts.slice(1);
-                
-                // Create poll
-                pollCounter++;
-                const pollId = `poll_${pollCounter}`;
-                const poll = {
-                    id: pollId,
-                    question: question,
-                    options: options,
-                    votes: new Map(), // userId -> optionIndex
-                    createdBy: message.author || message.from,
-                    createdAt: new Date(),
-                    chatId: chat.id._serialized
-                };
-                
-                activePolls.set(pollId, poll);
-                
-                // Format poll message
-                let pollMessage = `📊 POLL #${pollCounter}\n\n`;
-                pollMessage += `❓ ${question}\n\n`;
-                options.forEach((option, index) => {
-                    pollMessage += `${index + 1}️⃣ ${option}\n`;
-                });
-                pollMessage += `\n💡 Vote using: ?vote ${pollId} <number>`;
-                pollMessage += `\n📋 View results: ?pollresults ${pollId}`;
-                
-                await message.reply(pollMessage);
-                console.log(`📊 Created poll "${question}" with ${options.length} options (ID: ${pollId})`);
+            // Parse poll command: ?poll what should we eat, pizza, burger, sushi
+            const pollText = message.body.substring(6); // Remove "?poll "
+            
+            // Split by commas and trim whitespace
+            const parts = pollText.split(',').map(part => part.trim());
+            
+            if (parts.length < 3) {
+                return message.reply('Usage: ?poll question, option1, option2, option3\n\nExample: ?poll what should we eat, pizza, burger, sushi');
             }
             
-            // VOTE ON POLL
-            else if (message.body.startsWith('?vote ')) {
-                const args = message.body.split(' ');
-                if (args.length !== 3) {
-                    return message.reply('Usage: ?vote <pollId> <optionNumber>\n\nExample: ?vote poll_1 2');
-                }
-                
-                const pollId = args[1];
-                const optionNumber = parseInt(args[2]);
-                
-                const poll = activePolls.get(pollId);
-                if (!poll) {
-                    return message.reply('Poll not found. Use ?polls to see active polls.');
-                }
-                
-                if (isNaN(optionNumber) || optionNumber < 1 || optionNumber > poll.options.length) {
-                    return message.reply(`Please choose a number between 1 and ${poll.options.length}.`);
-                }
-                
-                const voterId = message.author || message.from;
-                const optionIndex = optionNumber - 1;
-                
-                // Record vote (overwrite if user already voted)
-                const previousVote = poll.votes.get(voterId);
-                poll.votes.set(voterId, optionIndex);
-                
-                const voterContact = await message.getContact();
-                const voterName = voterContact.pushname || voterContact.name || 'Someone';
-                
-                let replyMessage = `✅ ${voterName} voted for: ${poll.options[optionIndex]}`;
-                if (previousVote !== undefined && previousVote !== optionIndex) {
-                    replyMessage += ` (changed from: ${poll.options[previousVote]})`;
-                }
-                
-                await message.reply(replyMessage);
-                console.log(`🗳️ ${voterName} voted for option ${optionNumber} in poll ${pollId}`);
+            if (parts.length > 13) { // 1 question + 12 options max (WhatsApp limit)
+                return message.reply('Maximum 12 options allowed per poll.');
             }
             
-            // SHOW POLL RESULTS
-            else if (message.body.startsWith('?pollresults ')) {
-                const pollId = message.body.split(' ')[1];
-                
-                const poll = activePolls.get(pollId);
-                if (!poll) {
-                    return message.reply('Poll not found. Use ?polls to see active polls.');
-                }
-                
-                // Count votes for each option
-                const voteCounts = new Array(poll.options.length).fill(0);
-                const voterDetails = new Array(poll.options.length).fill().map(() => []);
-                
-                for (const [voterId, optionIndex] of poll.votes) {
-                    voteCounts[optionIndex]++;
-                    try {
-                        const voterContact = await client.getContactById(voterId);
-                        const voterName = voterContact.pushname || voterContact.name || 'Someone';
-                        voterDetails[optionIndex].push(voterName);
-                    } catch (error) {
-                        voterDetails[optionIndex].push('Unknown');
-                    }
-                }
-                
-                const totalVotes = poll.votes.size;
-                
-                // Format results
-                let resultsMessage = `📊 POLL RESULTS #${poll.id.split('_')[1]}\n\n`;
-                resultsMessage += `❓ ${poll.question}\n\n`;
-                
-                if (totalVotes === 0) {
-                    resultsMessage += '❌ No votes yet!\n\n';
-                } else {
-                    poll.options.forEach((option, index) => {
-                        const votes = voteCounts[index];
-                        const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
-                        const barLength = Math.round(percentage / 10); // 10 chars max
-                        const bar = '█'.repeat(barLength) + '░'.repeat(10 - barLength);
-                        
-                        resultsMessage += `${index + 1}️⃣ ${option}\n`;
-                        resultsMessage += `   ${bar} ${percentage}% (${votes} vote${votes !== 1 ? 's' : ''})\n`;
-                        
-                        if (votes > 0 && voterDetails[index].length <= 5) {
-                            resultsMessage += `   👥 ${voterDetails[index].join(', ')}\n`;
-                        } else if (votes > 5) {
-                            resultsMessage += `   👥 ${voterDetails[index].slice(0, 3).join(', ')} +${votes - 3} more\n`;
-                        }
-                        resultsMessage += '\n';
-                    });
-                }
-                
-                resultsMessage += `📈 Total votes: ${totalVotes}`;
-                resultsMessage += `\n💡 Vote using: ?vote ${poll.id} <number>`;
-                
-                await message.reply(resultsMessage);
-            }
+            // First part is question, rest are options
+            const question = parts[0];
+            const options = parts.slice(1);
             
-            // LIST ACTIVE POLLS
-            else if (message.body === '?polls') {
-                if (activePolls.size === 0) {
-                    return message.reply('No active polls. Create one with: ?poll question, option1, option2');
-                }
+            try {
+                // Create poll options array with required format
+                const pollOptions = options.map((option, index) => ({
+                    name: option,
+                    localId: index
+                }));
                 
-                let pollsList = '📊 ACTIVE POLLS\n\n';
+                // Create native WhatsApp poll
+                const poll = new Poll(question, pollOptions);
                 
-                for (const [pollId, poll] of activePolls) {
-                    const totalVotes = poll.votes.size;
-                    const pollNumber = poll.id.split('_')[1];
-                    
-                    pollsList += `🗳️ Poll #${pollNumber} (${totalVotes} vote${totalVotes !== 1 ? 's' : ''})\n`;
-                    pollsList += `   ❓ ${poll.question}\n`;
-                    pollsList += `   💡 ?vote ${poll.id} <number>\n`;
-                    pollsList += `   📋 ?pollresults ${poll.id}\n\n`;
-                }
+                // Send the poll
+                await chat.sendMessage(poll);
                 
-                pollsList += '✨ Create new poll: ?poll question, option1, option2';
+                console.log(`📊 Created native WhatsApp poll: "${question}" with ${options.length} options`);
                 
-                await message.reply(pollsList);
-            }
-            
-            // CLOSE POLL
-            else if (message.body.startsWith('?closepoll ')) {
-                const pollId = message.body.split(' ')[1];
-                
-                const poll = activePolls.get(pollId);
-                if (!poll) {
-                    return message.reply('Poll not found. Use ?polls to see active polls.');
-                }
-                
-                const requesterId = message.author || message.from;
-                
-                // Check if requester is poll creator or admin/owner
-                const chat = await message.getChat();
-                const senderIsAdmin = chat.isGroup ? chat.participants.find(p => p.id._serialized === requesterId)?.isAdmin : false;
-                const senderIsOwner = requesterId === '917428233446@c.us';
-                const isPollCreator = poll.createdBy === requesterId;
-                
-                if (!isPollCreator && !senderIsAdmin && !senderIsOwner) {
-                    return message.reply('Only the poll creator or group admins can close polls.');
-                }
-                
-                // Show final results before closing
-                const totalVotes = poll.votes.size;
-                const voteCounts = new Array(poll.options.length).fill(0);
-                
-                for (const [voterId, optionIndex] of poll.votes) {
-                    voteCounts[optionIndex]++;
-                }
-                
-                let finalResults = `🏁 POLL CLOSED #${poll.id.split('_')[1]}\n\n`;
-                finalResults += `❓ ${poll.question}\n\n`;
-                
-                if (totalVotes > 0) {
-                    // Find winning option(s)
-                    const maxVotes = Math.max(...voteCounts);
-                    const winners = [];
-                    
-                    poll.options.forEach((option, index) => {
-                        const votes = voteCounts[index];
-                        const percentage = Math.round((votes / totalVotes) * 100);
-                        
-                        if (votes === maxVotes) {
-                            winners.push(option);
-                        }
-                        
-                        const barLength = Math.round(percentage / 10);
-                        const bar = '█'.repeat(barLength) + '░'.repeat(10 - barLength);
-                        
-                        finalResults += `${index + 1}️⃣ ${option}\n`;
-                        finalResults += `   ${bar} ${percentage}% (${votes} vote${votes !== 1 ? 's' : ''})\n\n`;
-                    });
-                    
-                    if (winners.length === 1) {
-                        finalResults += `🏆 Winner: ${winners[0]} (${maxVotes} vote${maxVotes !== 1 ? 's' : ''})\n`;
-                    } else {
-                        finalResults += `🤝 Tie between: ${winners.join(', ')} (${maxVotes} vote${maxVotes !== 1 ? 's' : ''} each)\n`;
-                    }
-                    
-                    finalResults += `📈 Total votes: ${totalVotes}`;
-                } else {
-                    finalResults += '❌ No votes were cast.';
-                }
-                
-                // Remove poll from active polls
-                activePolls.delete(pollId);
-                
-                await message.reply(finalResults);
-                console.log(`🏁 Poll ${pollId} closed by ${requesterId}`);
-            }
-            
-            // POLL HELP
-            else if (message.body === '?pollhelp') {
-                const helpMessage = `📊 POLL COMMANDS HELP\n\n` +
-                    `✨ CREATE POLL:\n` +
-                    `   ?poll question, option1, option2, option3\n` +
-                    `   Example: ?poll what should we eat, pizza, burger, sushi\n\n` +
-                    `🗳️ VOTE:\n` +
-                    `   ?vote <pollId> <optionNumber>\n` +
-                    `   Example: ?vote poll_1 2\n\n` +
-                    `📋 VIEW RESULTS:\n` +
-                    `   ?pollresults <pollId>\n` +
-                    `   Example: ?pollresults poll_1\n\n` +
-                    `📊 LIST ACTIVE POLLS:\n` +
-                    `   ?polls\n\n` +
-                    `🏁 CLOSE POLL:\n` +
-                    `   ?closepoll <pollId>\n` +
-                    `   Example: ?closepoll poll_1\n` +
-                    `   (Only poll creator or admins can close)\n\n` +
-                    `💡 TIPS:\n` +
-                    `   • You can create up to 10 options per poll\n` +
-                    `   • You can change your vote anytime\n` +
-                    `   • Results show percentages and voter names\n` +
-                    `   • Polls stay active until manually closed`;
-                
-                await message.reply(helpMessage);
+            } catch (error) {
+                console.error('❌ Error creating poll:', error);
+                await message.reply('Sorry, there was an error creating the poll. Make sure your WhatsApp supports polls.');
             }
         }
         
