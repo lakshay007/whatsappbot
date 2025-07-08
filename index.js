@@ -323,6 +323,23 @@ Now respond to: ${userMessage}`;
         return response.text().trim();
     } catch (error) {
         console.error('❌ Error getting AI response:', error);
+        
+        // Check for quota violations and log details
+        if (error.errorDetails && Array.isArray(error.errorDetails)) {
+            console.log('🔍 Error details found, checking for quota violations...');
+            
+            error.errorDetails.forEach((detail, index) => {
+                console.log(`📋 Error detail ${index + 1}:`, detail);
+                
+                if (detail['@type'] === 'type.googleapis.com/google.rpc.QuotaFailure' && detail.violations) {
+                    console.log('⚠️ Quota violation details:');
+                    detail.violations.forEach((violation, violationIndex) => {
+                        console.log(`  📊 Violation ${violationIndex + 1}:`, JSON.stringify(violation, null, 2));
+                    });
+                }
+            });
+        }
+        
         return "Hey! I saw your message but I'm having trouble processing it right now. Can you try again?".trim();
     }
 }
