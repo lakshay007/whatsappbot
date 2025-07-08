@@ -1,6 +1,8 @@
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 // Initialize Gemini AI with model switching
@@ -37,6 +39,98 @@ let keepAliveInterval;
 let isRestarting = false;
 
 // Native WhatsApp polls - no storage needed!
+
+// Document management functions
+function sanitizeGroupName(groupName) {
+    // Remove special characters and replace spaces with underscores
+    return groupName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+}
+
+function getGroupDocumentsFolder(chat) {
+    let folderName;
+    if (chat.isGroup) {
+        folderName = sanitizeGroupName(chat.name || chat.id.user);
+    } else {
+        folderName = 'private_' + sanitizeGroupName(chat.id.user);
+    }
+    
+    const documentsPath = path.join(__dirname, 'documents', folderName);
+    
+    // Create folder if it doesn't exist
+    if (!fs.existsSync(path.join(__dirname, 'documents'))) {
+        fs.mkdirSync(path.join(__dirname, 'documents'));
+    }
+    if (!fs.existsSync(documentsPath)) {
+        fs.mkdirSync(documentsPath, { recursive: true });
+    }
+    
+    return documentsPath;
+}
+
+function fuzzySearch(query, filename) {
+    const queryLower = query.toLowerCase();
+    const filenameLower = filename.toLowerCase();
+    
+    // Exact match gets highest score
+    if (filenameLower === queryLower) return 100;
+    
+    // Starts with query gets high score
+    if (filenameLower.startsWith(queryLower)) return 90;
+    
+    // Contains query gets medium score
+    if (filenameLower.includes(queryLower)) return 70;
+    
+    // Check if all query characters exist in filename (order doesn't matter)
+    const queryChars = queryLower.split('');
+    const filenameChars = filenameLower.split('');
+    let queryIndex = 0;
+    
+    for (let i = 0; i < filenameChars.length && queryIndex < queryChars.length; i++) {
+        if (filenameChars[i] === queryChars[queryIndex]) {
+            queryIndex++;
+        }
+    }
+    
+    if (queryIndex === queryChars.length) return 50; // All characters found in order
+    
+    // Simple character overlap scoring
+    const commonChars = queryChars.filter(char => filenameChars.includes(char)).length;
+    return (commonChars / queryChars.length) * 30;
+}
+
+function searchDocuments(documentsPath, query) {
+    try {
+        if (!fs.existsSync(documentsPath)) {
+            return [];
+        }
+        
+        const files = fs.readdirSync(documentsPath);
+        const results = [];
+        
+        for (const file of files) {
+            const filePath = path.join(documentsPath, file);
+            const stats = fs.statSync(filePath);
+            
+            if (stats.isFile()) {
+                const score = fuzzySearch(query, file);
+                if (score > 0) {
+                    results.push({
+                        filename: file,
+                        path: filePath,
+                        score: score,
+                        size: stats.size
+                    });
+                }
+            }
+        }
+        
+        // Sort by score (highest first)
+        return results.sort((a, b) => b.score - a.score);
+    } catch (error) {
+        console.error('❌ Error searching documents:', error);
+        return [];
+    }
+}
 
 // Create client with optimized settings
 const client = new Client({
@@ -645,6 +739,62 @@ client.on('message_create', async message => {
         // Update heartbeat on message activity
         lastHeartbeat = Date.now();
         
+        // AUTO-STORE DOCUMENTS
+        if (message.hasMedia) {
+            const chat = await message.getChat();
+            const media = await message.downloadMedia();
+            
+            if (media && media.filename) {
+                // Only store certain file types
+                const allowedTypes = ['.pdf', '.doc', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.zip', '.rar', '.xlsx', '.xls', '.ppt', '.pptx'];
+                const fileExt = path.extname(media.filename).toLowerCase();
+                
+                if (allowedTypes.includes(fileExt)) {
+                    try {
+                        const documentsPath = getGroupDocumentsFolder(chat);
+                        const filePath = path.join(documentsPath, media.filename);
+                        
+                        // Avoid overwriting - add number suffix if file exists
+                        let finalPath = filePath;
+                        let counter = 1;
+                        while (fs.existsSync(finalPath)) {
+                            const nameWithoutExt = path.basename(media.filename, fileExt);
+                            finalPath = path.join(documentsPath, `${nameWithoutExt}_${counter}${fileExt}`);
+                            counter++;
+                        }
+                        
+                        // Save the file
+                        fs.writeFileSync(finalPath, media.data, 'base64');
+                        
+                        const finalFilename = path.basename(finalPath);
+                        const sizeKB = Math.round(media.data.length * 0.75 / 1024); // Approximate size from base64
+                        
+                        console.log(`💾 Stored document: ${finalFilename} (${sizeKB}KB) in ${chat.isGroup ? chat.name : 'private chat'}`);
+                        
+                        // Send confirmation (optional - you can remove this if you don't want confirmations)
+                        setTimeout(async () => {
+                            try {
+                                const confirmMsg = await message.reply(`💾 Stored "${finalFilename}" - use ?fetch to retrieve it later`);
+                                // Auto-delete confirmation after 3 seconds
+                                setTimeout(async () => {
+                                    try {
+                                        await confirmMsg.delete(true);
+                                    } catch (error) {
+                                        // Ignore deletion errors
+                                    }
+                                }, 3000);
+                            } catch (error) {
+                                // Ignore confirmation errors
+                            }
+                        }, 500);
+                        
+                    } catch (error) {
+                        console.error('❌ Error storing document:', error);
+                    }
+                }
+            }
+        }
+        
         // KICK COMMAND
         if (message.body.startsWith('?kick')) {
             const chat = await message.getChat();
@@ -953,6 +1103,127 @@ client.on('message_create', async message => {
             }
         }
         
+        // LIST DOCUMENTS COMMAND
+        else if (message.body === '?list') {
+            const chat = await message.getChat();
+            
+            try {
+                const documentsPath = getGroupDocumentsFolder(chat);
+                
+                if (!fs.existsSync(documentsPath)) {
+                    const groupName = chat.isGroup ? chat.name : 'this chat';
+                    await message.reply(`📄 No documents stored yet for ${groupName}.\n\nSend files to this group and I'll automatically store them for fetching.`);
+                    return;
+                }
+                
+                const files = fs.readdirSync(documentsPath);
+                const documents = [];
+                
+                for (const file of files) {
+                    const filePath = path.join(documentsPath, file);
+                    const stats = fs.statSync(filePath);
+                    
+                    if (stats.isFile()) {
+                        documents.push({
+                            name: file,
+                            size: stats.size,
+                            modified: stats.mtime
+                        });
+                    }
+                }
+                
+                if (documents.length === 0) {
+                    const groupName = chat.isGroup ? chat.name : 'this chat';
+                    await message.reply(`📄 No documents stored yet for ${groupName}.\n\nSend files to this group and I'll automatically store them for fetching.`);
+                    return;
+                }
+                
+                // Sort by most recently modified
+                documents.sort((a, b) => b.modified - a.modified);
+                
+                let listText = `📄 Documents in ${chat.isGroup ? chat.name : 'this chat'} (${documents.length} files):\n\n`;
+                
+                documents.slice(0, 10).forEach((doc, index) => {
+                    const sizeKB = Math.round(doc.size / 1024);
+                    const date = doc.modified.toLocaleDateString();
+                    listText += `${index + 1}. ${doc.name} (${sizeKB}KB) - ${date}\n`;
+                });
+                
+                if (documents.length > 10) {
+                    listText += `... and ${documents.length - 10} more files\n`;
+                }
+                
+                listText += `\nUse ?fetch <name> to retrieve any document.`;
+                await message.reply(listText);
+                
+            } catch (error) {
+                console.error('❌ Error listing documents:', error);
+                await message.reply('Sorry, there was an error listing documents. Please try again.');
+            }
+        }
+        
+        // FETCH COMMAND
+        else if (message.body.startsWith('?fetch ')) {
+            const chat = await message.getChat();
+            const query = message.body.substring(7).trim(); // Remove "?fetch "
+            
+            if (!query) {
+                return message.reply('Usage: ?fetch <document name>\nExample: ?fetch meeting notes');
+            }
+            
+            try {
+                const documentsPath = getGroupDocumentsFolder(chat);
+                const searchResults = searchDocuments(documentsPath, query);
+                
+                if (searchResults.length === 0) {
+                    const groupName = chat.isGroup ? chat.name : 'this chat';
+                    await message.reply(`📄 No documents found for "${query}" in ${groupName}.\n\nTo add documents, simply send them as files to this group and I'll store them for future fetching.`);
+                    return;
+                }
+                
+                // If perfect match or only one result, send it directly
+                if (searchResults.length === 1 || searchResults[0].score >= 90) {
+                    const doc = searchResults[0];
+                    
+                    // Check file size (WhatsApp limit is ~100MB, but let's be conservative)
+                    const maxSize = 50 * 1024 * 1024; // 50MB
+                    if (doc.size > maxSize) {
+                        await message.reply(`📄 Found "${doc.filename}" but it's too large to send (${Math.round(doc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
+                        return;
+                    }
+                    
+                    console.log(`📤 Sending document: ${doc.filename} (${Math.round(doc.size / 1024)}KB)`);
+                    
+                    // Send the document
+                    const media = MessageMedia.fromFilePath(doc.path);
+                    await chat.sendMessage(media, {
+                        caption: `📄 ${doc.filename}`
+                    });
+                    
+                    console.log(`✅ Document sent: ${doc.filename}`);
+                } else {
+                    // Multiple results - show list
+                    let resultText = `📄 Found multiple documents for "${query}":\n\n`;
+                    
+                    searchResults.slice(0, 5).forEach((doc, index) => {
+                        const sizeKB = Math.round(doc.size / 1024);
+                        resultText += `${index + 1}. ${doc.filename} (${sizeKB}KB)\n`;
+                    });
+                    
+                    if (searchResults.length > 5) {
+                        resultText += `... and ${searchResults.length - 5} more\n`;
+                    }
+                    
+                    resultText += `\nUse ?fetch with a more specific name to get the exact document.`;
+                    await message.reply(resultText);
+                }
+                
+            } catch (error) {
+                console.error('❌ Error in fetch command:', error);
+                await message.reply('Sorry, there was an error searching for documents. Please try again.');
+            }
+        }
+        
         // HELP COMMAND
         else if (message.body === '?help') {
             const helpMessage = `Chotu helper commands\n\n` +
@@ -970,7 +1241,14 @@ client.on('message_create', async message => {
                 `   Example: ?poll what should we eat, pizza, burger, sushi\n` +
                 `   Example: ?poll -m fav food, pizza, burger, sushi\n` +
                 `   • Creates native WhatsApp poll with tap-to-vote\n` +
-                `   • Up to 12 options allowed\n`;
+                `   • Up to 12 options allowed\n\n` +
+                `📄 DOCUMENTS:\n` +
+                `   ?list - Show all stored documents in this group\n` +
+                `   ?fetch <name> - Find and send document from group folder\n` +
+                `   Example: ?fetch meeting notes, ?fetch project\n` +
+                `   • Automatically stores files sent to the group\n` +
+                `   • Searches with fuzzy matching (handles typos)\n` +
+                `   • Each group has its own document storage\n`;
             
             await message.reply(helpMessage);
         }
