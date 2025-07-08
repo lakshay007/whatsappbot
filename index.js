@@ -3,9 +3,29 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// Initialize Gemini AI
+// Initialize Gemini AI with model switching
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// Model switching setup
+const GEMINI_MODELS = [
+    'gemini-2.0-flash',         // Default
+    'gemini-1.5-flash',         // Fallback 1  
+    'gemini-2.0-flash-lite'     // Fallback 2
+];
+
+let currentModelIndex = 0; // Start with gemini-2.0-flash
+
+// Simple model getter
+function getCurrentModel() {
+    const modelName = GEMINI_MODELS[currentModelIndex];
+    return genAI.getGenerativeModel({ model: modelName });
+}
+
+// Basic switching logic
+function switchToNextModel() {
+    currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
+    console.log(`🔄 Switched to: ${GEMINI_MODELS[currentModelIndex]}`);
+}
 
 // Bot health monitoring variables
 let isReady = false;
@@ -525,30 +545,29 @@ async function executeAvatarCommand(message, username) {
 }
 
 async function getAIResponse(userMessage, senderName, context = null, contextType = 'reply') {
-    try {
-        // Update heartbeat on AI activity
-        lastHeartbeat = Date.now();
-        
-        let prompt = `You are chotu - a quick-witted, clever person who responds naturally on WhatsApp. ${senderName} `;
+    // Update heartbeat on AI activity
+    lastHeartbeat = Date.now();
+    
+    let prompt = `You are chotu - a quick-witted, clever person who responds naturally on WhatsApp. ${senderName} `;
 
-        if (context && contextType === 'quoted_context') {
-            prompt += `mentioned you while replying to someone else's message.
+    if (context && contextType === 'quoted_context') {
+        prompt += `mentioned you while replying to someone else's message.
 
 CONTEXT: ${context}
 ${senderName}'s message mentioning you: "${userMessage}"
 
 Respond to ${senderName}, considering what the other person said. You can comment on, react to, or build off the quoted message.`;
-        } else if (context) {
-            prompt += `replied to your message "${context}" with: "${userMessage}"
+    } else if (context) {
+        prompt += `replied to your message "${context}" with: "${userMessage}"
 
 Respond to their reply, considering the conversation flow.`;
-        } else {
-            prompt += `mentioned you with: "${userMessage}"
+    } else {
+        prompt += `mentioned you with: "${userMessage}"
 
 This is a new interaction.`;
-        }
+    }
 
-        prompt += `
+    prompt += `
 
 YOUR PERSONALITY:
 - Quick-witted and clever with sharp responses
@@ -577,11 +596,14 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 
 Now respond to: ${userMessage}`;
 
+    // Try current model
+    try {
+        const model = getCurrentModel();
         const result = await model.generateContent(prompt);
         const response = await result.response;
         return response.text().trim();
     } catch (error) {
-        console.error('❌ Error getting AI response:', error);
+        console.error(`❌ ${GEMINI_MODELS[currentModelIndex]} failed:`, error.message);
         
         // Check for quota violations and log details
         if (error.errorDetails && Array.isArray(error.errorDetails)) {
@@ -599,7 +621,22 @@ Now respond to: ${userMessage}`;
             });
         }
         
-        return "Hey! I saw your message but I'm having trouble processing it right now. Can you try again?".trim();
+        // Switch and try once more
+        switchToNextModel();
+        
+        try {
+            const model = getCurrentModel();  
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            return response.text().trim();
+        } catch (secondError) {
+            console.error(`❌ ${GEMINI_MODELS[currentModelIndex]} also failed:`, secondError.message);
+            
+            // Switch again for next time
+            switchToNextModel();
+            
+            return "Hey! I'm having trouble thinking right now. Try again?";
+        }
     }
 }
 
