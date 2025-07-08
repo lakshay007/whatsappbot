@@ -740,7 +740,7 @@ client.on('message_create', async message => {
         lastHeartbeat = Date.now();
         
         // AUTO-STORE DOCUMENTS (only from users, not from bot itself)
-        if (message.hasMedia && !message.fromMe && message.type !== 'STICKER') {
+        if (message.hasMedia && !message.fromMe && message.type !== 'sticker'  ) {
             const chat = await message.getChat();
             const media = await message.downloadMedia();
             
