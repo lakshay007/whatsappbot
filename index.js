@@ -744,21 +744,55 @@ client.on('message_create', async message => {
             const chat = await message.getChat();
             const media = await message.downloadMedia();
             
-            if (media && media.filename) {
+            if (media) {
+                let filename = media.filename;
+                let fileExt = '';
+                
+                // Handle media without filename (copy/paste images, camera photos, etc.)
+                if (!filename) {
+                    // Generate filename based on mimetype
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    
+                    if (media.mimetype) {
+                        if (media.mimetype.startsWith('image/')) {
+                            if (media.mimetype.includes('jpeg') || media.mimetype.includes('jpg')) {
+                                filename = `image_${timestamp}.jpg`;
+                            } else if (media.mimetype.includes('png')) {
+                                filename = `image_${timestamp}.png`;
+                            } else {
+                                filename = `image_${timestamp}.jpg`; // Default to jpg for other image types
+                            }
+                        } else if (media.mimetype.includes('pdf')) {
+                            filename = `document_${timestamp}.pdf`;
+                        } else {
+                            // Don't generate filename for videos, audio, gifs, webp - they won't be stored
+                            filename = null;
+                        }
+                    } else {
+                        filename = null; // No mimetype, don't store
+                    }
+                }
+                
+                // Skip if no filename (videos, audio, gifs, webp, etc.)
+                if (!filename) {
+                    return;
+                }
+                
+                fileExt = path.extname(filename).toLowerCase();
+                
                 // Only store certain file types
-                const allowedTypes = ['.pdf', '.doc', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.zip', '.rar', '.xlsx', '.xls', '.ppt', '.pptx'];
-                const fileExt = path.extname(media.filename).toLowerCase();
+                const allowedTypes = ['.pdf', '.doc', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.zip', '.rar', '.xlsx', '.xls', '.ppt', '.pptx'];
                 
                 if (allowedTypes.includes(fileExt)) {
                     try {
                         const documentsPath = getGroupDocumentsFolder(chat);
-                        const filePath = path.join(documentsPath, media.filename);
+                        const filePath = path.join(documentsPath, filename);
                         
                         // Avoid overwriting - add number suffix if file exists
                         let finalPath = filePath;
                         let counter = 1;
                         while (fs.existsSync(finalPath)) {
-                            const nameWithoutExt = path.basename(media.filename, fileExt);
+                            const nameWithoutExt = path.basename(filename, fileExt);
                             finalPath = path.join(documentsPath, `${nameWithoutExt}_${counter}${fileExt}`);
                             counter++;
                         }
@@ -1145,6 +1179,64 @@ client.on('message_create', async message => {
             }
         }
         
+        // RENAME COMMAND
+        else if (message.body.startsWith('?rename ')) {
+            const chat = await message.getChat();
+            const renameText = message.body.substring(8).trim(); // Remove "?rename "
+            
+            if (!renameText.includes(':')) {
+                return message.reply('Usage: ?rename oldname:newname\nExample: ?rename old_document.pdf:new_document.pdf');
+            }
+            
+            const [oldName, newName] = renameText.split(':').map(name => name.trim());
+            
+            if (!oldName || !newName) {
+                return message.reply('Usage: ?rename oldname:newname\nBoth old and new names are required.');
+            }
+            
+            try {
+                const documentsPath = getGroupDocumentsFolder(chat);
+                const searchResults = searchDocuments(documentsPath, oldName);
+                
+                if (searchResults.length === 0) {
+                    await message.reply(`📄 No document found matching "${oldName}".`);
+                    return;
+                }
+                
+                // Get the best match
+                const fileToRename = searchResults[0];
+                
+                // Check if multiple matches and score is low
+                if (searchResults.length > 1 && fileToRename.score < 90) {
+                    let resultText = `📄 Multiple files match "${oldName}":\n\n`;
+                    searchResults.slice(0, 5).forEach((doc, index) => {
+                        resultText += `${index + 1}. ${doc.filename}\n`;
+                    });
+                    resultText += `\nPlease be more specific with the filename.`;
+                    await message.reply(resultText);
+                    return;
+                }
+                
+                // Check if new name already exists
+                const newFilePath = path.join(documentsPath, newName);
+                if (fs.existsSync(newFilePath)) {
+                    await message.reply(`📄 A file named "${newName}" already exists. Choose a different name.`);
+                    return;
+                }
+                
+                // Perform the rename
+                const oldFilePath = fileToRename.path;
+                fs.renameSync(oldFilePath, newFilePath);
+                
+                console.log(`📝 Renamed: ${fileToRename.filename} → ${newName}`);
+                await message.reply(`📝 Successfully renamed "${fileToRename.filename}" to "${newName}"`);
+                
+            } catch (error) {
+                console.error('❌ Error renaming file:', error);
+                await message.reply('Sorry, there was an error renaming the file. Please try again.');
+            }
+        }
+        
         // FETCH COMMAND
         else if (message.body.startsWith('?fetch ')) {
             const chat = await message.getChat();
@@ -1228,8 +1320,9 @@ client.on('message_create', async message => {
                 `📄 DOCUMENTS:\n` +
                 `   ?list - Show all stored documents in this group\n` +
                 `   ?fetch <name> - Find and send document from group folder\n` +
-                `   Example: ?fetch meeting notes, ?fetch project\n` +
-                `   • Automatically stores files sent to the group\n` +
+                `   ?rename oldname:newname - Rename a stored document\n` +
+                `   Example: ?fetch meeting notes, ?rename old.pdf:new.pdf\n` +
+                `   • Automatically stores documents and images (no videos/audio/gifs)\n` +
                 `   • Searches with fuzzy matching (handles typos)\n` +
                 `   • Each group has its own document storage\n`;
             
