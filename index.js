@@ -835,22 +835,19 @@ client.on('message_create', async message => {
                         const documentsPath = getGroupDocumentsFolder(chat);
                         const filePath = path.join(documentsPath, filename);
                         
-                        // Avoid overwriting - add number suffix if file exists
-                        let finalPath = filePath;
-                        let counter = 1;
-                        while (fs.existsSync(finalPath)) {
-                            const nameWithoutExt = path.basename(filename, fileExt);
-                            finalPath = path.join(documentsPath, `${nameWithoutExt}_${counter}${fileExt}`);
-                            counter++;
+                        // Check if file already exists - skip if duplicate
+                        if (fs.existsSync(filePath)) {
+                            const sizeKB = Math.round(media.data.length * 0.75 / 1024);
+                            console.log(`⏭️ Skipped duplicate file: ${filename} (${sizeKB}KB) in ${chat.isGroup ? chat.name : 'private chat'}`);
+                            return; // Skip storing this duplicate file
                         }
                         
-                        // Save the file
-                        fs.writeFileSync(finalPath, media.data, 'base64');
+                        // Save the file (only if it doesn't exist)
+                        fs.writeFileSync(filePath, media.data, 'base64');
                         
-                        const finalFilename = path.basename(finalPath);
                         const sizeKB = Math.round(media.data.length * 0.75 / 1024); // Approximate size from base64
                         
-                        console.log(`💾 Stored document: ${finalFilename} (${sizeKB}KB) in ${chat.isGroup ? chat.name : 'private chat'}`);
+                        console.log(`💾 Stored document: ${filename} (${sizeKB}KB) in ${chat.isGroup ? chat.name : 'private chat'}`);
                         
                     } catch (error) {
                         console.error('❌ Error storing document:', error);
