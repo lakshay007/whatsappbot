@@ -435,6 +435,15 @@ async function isReplyToBot(message) {
     }
 }
 
+// Google grounding configuration
+const groundingTool = {
+    googleSearch: {},
+};
+
+const generationConfig = {
+    tools: [groundingTool],
+};
+
 // Function to get AI response from Gemini
 async function executeNaturalCommand(message, aiResponse, chat, senderName) {
     try {
@@ -738,7 +747,11 @@ Now respond to: ${userMessage}`;
     // Try current model
     try {
         const model = getCurrentModel();
-        const result = await model.generateContent(prompt);
+        console.log('🔍 Generating AI response with Google grounding enabled...');
+        const result = await model.generateContent({
+            contents: prompt,
+            ...generationConfig
+        });
         const response = await result.response;
         return response.text().trim();
     } catch (error) {
@@ -766,7 +779,10 @@ Now respond to: ${userMessage}`;
         
         try {
             const model = getCurrentModel();  
-            const result = await model.generateContent(prompt);
+            const result = await model.generateContent({
+                contents: prompt,
+                ...generationConfig
+            });
             const response = await result.response;
             return response.text().trim();
         } catch (secondError) {
