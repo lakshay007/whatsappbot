@@ -432,7 +432,7 @@ async function isMentioned(message) {
     }
 }
 
-// Function to check if message is a reply to the bot or has media to analyze
+// Function to check if message is a reply to the bot
 async function isReplyToBot(message) {
     try {
         // Check if message has a quoted message (reply)
@@ -443,19 +443,13 @@ async function isReplyToBot(message) {
             // Check if the quoted message is from the bot
             if (quotedMsg.fromMe || quotedMsg.author === botId || quotedMsg.from === botId) {
                 console.log(`✅ Found reply to bot's message!`);
-                return { isReply: true, quotedMessage: quotedMsg, hasMedia: false };
-            }
-            
-            // Check if quoted message has media (image/PDF) that we can analyze
-            if (quotedMsg.hasMedia) {
-                console.log(`🖼️ Found reply to message with media!`);
-                return { isReply: false, quotedMessage: quotedMsg, hasMedia: true, isMediaReply: true };
+                return { isReply: true, quotedMessage: quotedMsg };
             }
         }
-        return { isReply: false, quotedMessage: null, hasMedia: false };
+        return { isReply: false, quotedMessage: null };
     } catch (error) {
         console.error('❌ Error checking reply:', error);
-        return { isReply: false, quotedMessage: null, hasMedia: false };
+        return { isReply: false, quotedMessage: null };
     }
 }
 
@@ -1724,12 +1718,12 @@ client.on('message_create', async message => {
                 `   • Creates native WhatsApp poll with tap-to-vote\n` +
                 `   • Up to 12 options allowed\n\n` +
                 `🎨 MULTIMODAL AI:\n` +
-                `   Reply to any image or PDF to analyze it!\n` +
-                `   • Ask questions about images: "What's in this image?", "Explain this meme"\n` +
-                `   • Analyze PDFs: "Summarize this document", "What's the main point?"\n` +
-                `   • Read text from images: "What does this say?"\n` +
+                `   Reply to any image or PDF while mentioning chotu to analyze it!\n` +
+                `   • Ask questions: "chotu what's in this image?", "@chotu explain this meme"\n` +
+                `   • Analyze PDFs: "chotu summarize this document", "@chotu what's the main point?"\n` +
+                `   • Read text: "chotu what does this say?"\n` +
                 `   • Supports: JPG, PNG, WebP, GIF images and PDF documents\n` +
-                `   • Just reply to the media with your question - I'll analyze it!\n\n` +
+                `   • Works with both "chotu" and "@chotu" in your reply to the media!\n\n` +
                 `📄 DOCUMENTS:\n` +
                 `   ?list - Show all stored documents in this group\n` +
                 `   ?fetch <name or number> - Find and send document from group folder\n` +
@@ -1757,14 +1751,14 @@ client.on('message_create', async message => {
             await message.reply(status);
         }
         
-        // CHECK FOR REPLIES TO BOT, MENTIONS, OR MEDIA REPLIES
+        // CHECK FOR REPLIES TO BOT OR MENTIONS (including media analysis when mentioned)
         else {
             const replyCheck = await isReplyToBot(message);
             // Skip mention check for bot's own messages to prevent infinite loops
             const mentionCheck = message.fromMe ? false : await isMentioned(message);
             
-            if (replyCheck.isReply || replyCheck.isMediaReply || mentionCheck) {
-                const responseType = replyCheck.isReply ? 'reply' : (replyCheck.isMediaReply ? 'media_reply' : 'mention');
+            if (replyCheck.isReply || mentionCheck) {
+                const responseType = replyCheck.isReply ? 'reply' : 'mention';
                 console.log(`🔔 ${responseType} by: ${message.author || message.from}`);
                 console.log(`📝 Message: ${message.body}`);
                 
@@ -1777,39 +1771,7 @@ client.on('message_create', async message => {
                 let aiResponse;
                 let mediaData = null;
                 
-                // Handle media replies (images/PDFs)
-                if (replyCheck.isMediaReply) {
-                    console.log(`🖼️ Processing media reply from ${senderName}...`);
-                    
-                    mediaData = await downloadAndProcessMedia(replyCheck.quotedMessage);
-                    
-                    if (mediaData && mediaData.error) {
-                        // Handle media processing errors
-                        switch (mediaData.error) {
-                            case 'unsupported':
-                                await message.reply(`I can only analyze images (JPG, PNG, WebP, GIF) and PDF files. This file type (${mediaData.mimetype}) isn't supported yet.`);
-                                return;
-                            case 'too_large':
-                                await message.reply(`This file is too large for me to analyze (${mediaData.size}MB). Max size is ${mediaData.maxSize}MB.`);
-                                return;
-                            case 'processing_failed':
-                                await message.reply(`Sorry, I had trouble processing that file. Try again or use a different format.`);
-                                return;
-                            default:
-                                await message.reply(`I couldn't process that media. Please try again.`);
-                                return;
-                        }
-                    }
-                    
-                    if (!mediaData) {
-                        await message.reply(`I couldn't find any media to analyze in that message.`);
-                        return;
-                    }
-                    
-                    console.log(`🤔 Generating multimodal AI response for ${senderName}...`);
-                    aiResponse = await getAIResponse(message.body, senderName, null, 'media_reply', mediaData);
-                    
-                } else if (replyCheck.isReply) {
+                if (replyCheck.isReply) {
                     // Get the context from the bot's original message
                     const originalMessage = replyCheck.quotedMessage.body || replyCheck.quotedMessage.caption || 'previous message';
                     console.log(`🔄 Replying with context from: "${originalMessage}"`);
@@ -1819,24 +1781,64 @@ client.on('message_create', async message => {
                 } else if (mentionCheck) {
                     // Check if this mention is a reply to someone else's message (not the bot's)
                     let contextMessage = null;
+                    let isMediaMention = false;
+                    
                     if (message.hasQuotedMsg) {
                         try {
                             const quotedMsg = await message.getQuotedMessage();
                             const botId = client.info.wid._serialized;
                             
-                            // If it's NOT a reply to the bot's message, use it as context
+                            // If it's NOT a reply to the bot's message, check if it has media or is text context
                             if (!quotedMsg.fromMe && quotedMsg.author !== botId && quotedMsg.from !== botId) {
-                                const quotedContact = await quotedMsg.getContact();
-                                const quotedSenderName = quotedContact.pushname || quotedContact.name || 'Someone';
-                                contextMessage = `${quotedSenderName} said: "${quotedMsg.body || quotedMsg.caption || 'media message'}"`;
-                                console.log(`🔗 Got context from quoted message: ${contextMessage}`);
+                                
+                                // Check if quoted message has media for analysis
+                                if (quotedMsg.hasMedia) {
+                                    console.log(`🖼️ Processing mention with media analysis from ${senderName}...`);
+                                    isMediaMention = true;
+                                    
+                                    mediaData = await downloadAndProcessMedia(quotedMsg);
+                                    
+                                    if (mediaData && mediaData.error) {
+                                        // Handle media processing errors
+                                        switch (mediaData.error) {
+                                            case 'unsupported':
+                                                await message.reply(`I can only analyze images (JPG, PNG, WebP, GIF) and PDF files. This file type (${mediaData.mimetype}) isn't supported yet.`);
+                                                return;
+                                            case 'too_large':
+                                                await message.reply(`This file is too large for me to analyze (${mediaData.size}MB). Max size is ${mediaData.maxSize}MB.`);
+                                                return;
+                                            case 'processing_failed':
+                                                await message.reply(`Sorry, I had trouble processing that file. Try again or use a different format.`);
+                                                return;
+                                            default:
+                                                await message.reply(`I couldn't process that media. Please try again.`);
+                                                return;
+                                        }
+                                    }
+                                    
+                                    if (!mediaData) {
+                                        await message.reply(`I couldn't find any media to analyze in that message.`);
+                                        return;
+                                    }
+                                    
+                                } else {
+                                    // Regular text context
+                                    const quotedContact = await quotedMsg.getContact();
+                                    const quotedSenderName = quotedContact.pushname || quotedContact.name || 'Someone';
+                                    contextMessage = `${quotedSenderName} said: "${quotedMsg.body || quotedMsg.caption || 'media message'}"`;
+                                    console.log(`🔗 Got context from quoted message: ${contextMessage}`);
+                                }
                             }
                         } catch (error) {
                             console.error('❌ Error getting quoted message context:', error);
                         }
                     }
                     
-                    if (contextMessage) {
+                    if (isMediaMention) {
+                        // Mention with media analysis
+                        console.log(`🤔 Generating multimodal AI response for ${senderName}...`);
+                        aiResponse = await getAIResponse(message.body, senderName, null, 'media_reply', mediaData);
+                    } else if (contextMessage) {
                         // Mention with context from another person's message
                         console.log(`🤔 Generating AI response for ${senderName} with quoted context...`);
                         aiResponse = await getAIResponse(message.body, senderName, contextMessage, 'quoted_context');
