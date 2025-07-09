@@ -432,7 +432,7 @@ async function isMentioned(message) {
     }
 }
 
-// Function to check if message is a reply to the bot
+// Function to check if message is a reply to the bot or has media to analyze
 async function isReplyToBot(message) {
     try {
         // Check if message has a quoted message (reply)
@@ -443,13 +443,19 @@ async function isReplyToBot(message) {
             // Check if the quoted message is from the bot
             if (quotedMsg.fromMe || quotedMsg.author === botId || quotedMsg.from === botId) {
                 console.log(`✅ Found reply to bot's message!`);
-                return { isReply: true, quotedMessage: quotedMsg };
+                return { isReply: true, quotedMessage: quotedMsg, hasMedia: false };
+            }
+            
+            // Check if quoted message has media (image/PDF) that we can analyze
+            if (quotedMsg.hasMedia) {
+                console.log(`🖼️ Found reply to message with media!`);
+                return { isReply: false, quotedMessage: quotedMsg, hasMedia: true, isMediaReply: true };
             }
         }
-        return { isReply: false, quotedMessage: null };
+        return { isReply: false, quotedMessage: null, hasMedia: false };
     } catch (error) {
         console.error('❌ Error checking reply:', error);
-        return { isReply: false, quotedMessage: null };
+        return { isReply: false, quotedMessage: null, hasMedia: false };
     }
 }
 
@@ -457,6 +463,106 @@ async function isReplyToBot(message) {
 const groundingTool = {
     googleSearch: {},
 };
+
+// Media processing functions for multimodal AI
+function isMediaSupported(mimetype) {
+    const supportedTypes = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
+        'application/pdf'
+    ];
+    return supportedTypes.includes(mimetype);
+}
+
+async function downloadAndProcessMedia(quotedMessage) {
+    try {
+        if (!quotedMessage.hasMedia) {
+            return null;
+        }
+
+        console.log(`🖼️ Processing quoted media: ${quotedMessage.type}`);
+        
+        const media = await quotedMessage.downloadMedia();
+        
+        if (!media || !media.mimetype) {
+            console.log('❌ No media data or mimetype found');
+            return null;
+        }
+
+        if (!isMediaSupported(media.mimetype)) {
+            console.log(`❌ Unsupported media type: ${media.mimetype}`);
+            return { error: 'unsupported', mimetype: media.mimetype };
+        }
+
+        // Check file size limits
+        const dataSize = media.data.length * 0.75; // Approximate size from base64
+        const maxSize = media.mimetype === 'application/pdf' ? 10 * 1024 * 1024 : 4 * 1024 * 1024; // 10MB for PDF, 4MB for images
+        
+        if (dataSize > maxSize) {
+            const sizeMB = Math.round(dataSize / 1024 / 1024);
+            const maxMB = Math.round(maxSize / 1024 / 1024);
+            console.log(`❌ File too large: ${sizeMB}MB (max: ${maxMB}MB)`);
+            return { error: 'too_large', size: sizeMB, maxSize: maxMB };
+        }
+
+        console.log(`✅ Media processed: ${media.mimetype} (${Math.round(dataSize / 1024)}KB)`);
+        
+        return {
+            data: media.data,
+            mimetype: media.mimetype,
+            filename: media.filename || 'media_file',
+            size: Math.round(dataSize / 1024)
+        };
+        
+    } catch (error) {
+        console.error('❌ Error processing media:', error);
+        return { error: 'processing_failed', details: error.message };
+    }
+}
+
+function buildMultimodalPrompt(userMessage, senderName, mediaType, contextType = 'reply') {
+    let prompt = `You are chotu - a quick-witted, clever person who responds naturally on WhatsApp. ${senderName} `;
+
+    if (mediaType === 'application/pdf') {
+        prompt += `replied to a PDF document with: "${userMessage}"
+
+Analyze the PDF document and respond to their question/comment. You can:
+- Summarize the content
+- Answer specific questions about the document
+- Extract key information
+- Explain concepts from the document
+- Be critical or analytical if they're asking for review`;
+    } else if (mediaType.startsWith('image/')) {
+        prompt += `replied to an image with: "${userMessage}"
+
+Look at the image and respond to their question/comment. You can:
+- Describe what you see
+- Answer questions about the image content
+- Explain visual elements, text, charts, diagrams
+- Read text from the image if present
+- Analyze, critique, or comment on what's shown
+- Be humorous about memes or funny images`;
+    }
+
+    prompt += `
+
+YOUR PERSONALITY:
+- Quick-witted and clever with sharp responses
+- Direct and to the point, no unnecessary fluff
+- Can be playfully sarcastic when appropriate
+- Don't use emojis, keep it text-based
+- Reference specific visual/document elements when relevant
+- For Lakshay Chauhan/Lakshya/Lakshay: Always be respectful (he's the boss)
+
+RESPONSE RULES:
+- Focus on what they're specifically asking about the media
+- Be specific about what you see/read in the content
+- Keep responses conversational and WhatsApp-appropriate length
+- Don't just describe - engage with their actual question
+
+Now analyze the ${mediaType.startsWith('image/') ? 'image' : 'document'} and respond to: ${userMessage}`;
+
+    return prompt;
+}
 
 // Function to get AI response from Gemini
 async function executeNaturalCommand(message, aiResponse, chat, senderName) {
@@ -706,30 +812,52 @@ async function executeAvatarCommand(message, username) {
     }
 }
 
-async function getAIResponse(userMessage, senderName, context = null, contextType = 'reply') {
+async function getAIResponse(userMessage, senderName, context = null, contextType = 'reply', mediaData = null) {
     // Update heartbeat on AI activity
     lastHeartbeat = Date.now();
     
-    let prompt = `You are chotu - a quick-witted, clever person who responds naturally on WhatsApp. ${senderName} `;
+    let prompt;
+    let isMultimodal = false;
+    let contentParts = [];
+    
+    // Check if this is a multimodal request (image/PDF analysis)
+    if (mediaData && !mediaData.error) {
+        prompt = buildMultimodalPrompt(userMessage, senderName, mediaData.mimetype, contextType);
+        isMultimodal = true;
+        console.log(`🎨 Building multimodal request for ${mediaData.mimetype} (${mediaData.size}KB)`);
+        
+        // Build multimodal content parts
+        contentParts = [
+            { text: prompt },
+            {
+                inlineData: {
+                    mimeType: mediaData.mimetype,
+                    data: mediaData.data
+                }
+            }
+        ];
+    } else {
+        // Standard text-only prompt
+        prompt = `You are chotu - a quick-witted, clever person who responds naturally on WhatsApp. ${senderName} `;
 
-    if (context && contextType === 'quoted_context') {
-        prompt += `mentioned you while replying to someone else's message.
+        if (context && contextType === 'quoted_context') {
+            prompt += `mentioned you while replying to someone else's message.
 
 CONTEXT: ${context}
 ${senderName}'s message mentioning you: "${userMessage}"
 
 Respond to ${senderName}, considering what the other person said. You can comment on, react to, or build off the quoted message.`;
-    } else if (context) {
-        prompt += `replied to your message "${context}" with: "${userMessage}"
+        } else if (context) {
+            prompt += `replied to your message "${context}" with: "${userMessage}"
 
 Respond to their reply, considering the conversation flow.`;
-    } else {
-        prompt += `mentioned you with: "${userMessage}"
+        } else {
+            prompt += `mentioned you with: "${userMessage}"
 
 This is a new interaction.`;
-    }
+        }
 
-    prompt += `
+        prompt += `
 
 YOUR PERSONALITY:
 - Quick-witted and clever with sharp responses
@@ -758,6 +886,10 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 
 Now respond to: ${userMessage}`;
 
+        // Build text-only content parts
+        contentParts = [{ text: prompt }];
+    }
+
     // Try all available models before giving up
     const startingIndex = currentModelIndex;
     let attemptCount = 0;
@@ -768,10 +900,16 @@ Now respond to: ${userMessage}`;
             const current = MODEL_ROTATION[currentModelIndex];
             console.log(`🔍 Attempt ${attemptCount + 1}/${MODEL_ROTATION.length}: ${current.model} (${current.keyName})`);
             
-            const result = await model.generateContent({
-                contents: [{ parts: [{ text: prompt }] }],
-                tools: [groundingTool]
-            });
+            const requestConfig = {
+                contents: [{ parts: contentParts }]
+            };
+            
+            // Add grounding tools for text-only requests (multimodal might not support grounding yet)
+            if (!isMultimodal) {
+                requestConfig.tools = [groundingTool];
+            }
+            
+            const result = await model.generateContent(requestConfig);
             const response = await result.response;
             
             // Check if Google Search was used
@@ -1585,6 +1723,13 @@ client.on('message_create', async message => {
                 `   Example: ?poll -m fav food, pizza, burger, sushi\n` +
                 `   • Creates native WhatsApp poll with tap-to-vote\n` +
                 `   • Up to 12 options allowed\n\n` +
+                `🎨 MULTIMODAL AI:\n` +
+                `   Reply to any image or PDF to analyze it!\n` +
+                `   • Ask questions about images: "What's in this image?", "Explain this meme"\n` +
+                `   • Analyze PDFs: "Summarize this document", "What's the main point?"\n` +
+                `   • Read text from images: "What does this say?"\n` +
+                `   • Supports: JPG, PNG, WebP, GIF images and PDF documents\n` +
+                `   • Just reply to the media with your question - I'll analyze it!\n\n` +
                 `📄 DOCUMENTS:\n` +
                 `   ?list - Show all stored documents in this group\n` +
                 `   ?fetch <name or number> - Find and send document from group folder\n` +
@@ -1612,14 +1757,14 @@ client.on('message_create', async message => {
             await message.reply(status);
         }
         
-        // CHECK FOR REPLIES TO BOT OR MENTIONS
+        // CHECK FOR REPLIES TO BOT, MENTIONS, OR MEDIA REPLIES
         else {
             const replyCheck = await isReplyToBot(message);
             // Skip mention check for bot's own messages to prevent infinite loops
             const mentionCheck = message.fromMe ? false : await isMentioned(message);
             
-            if (replyCheck.isReply || mentionCheck) {
-                const responseType = replyCheck.isReply ? 'reply' : 'mention';
+            if (replyCheck.isReply || replyCheck.isMediaReply || mentionCheck) {
+                const responseType = replyCheck.isReply ? 'reply' : (replyCheck.isMediaReply ? 'media_reply' : 'mention');
                 console.log(`🔔 ${responseType} by: ${message.author || message.from}`);
                 console.log(`📝 Message: ${message.body}`);
                 
@@ -1630,13 +1775,47 @@ client.on('message_create', async message => {
                 const senderName = contact.pushname || contact.name || 'Someone';
                 
                 let aiResponse;
+                let mediaData = null;
                 
-                if (replyCheck.isReply) {
+                // Handle media replies (images/PDFs)
+                if (replyCheck.isMediaReply) {
+                    console.log(`🖼️ Processing media reply from ${senderName}...`);
+                    
+                    mediaData = await downloadAndProcessMedia(replyCheck.quotedMessage);
+                    
+                    if (mediaData && mediaData.error) {
+                        // Handle media processing errors
+                        switch (mediaData.error) {
+                            case 'unsupported':
+                                await message.reply(`I can only analyze images (JPG, PNG, WebP, GIF) and PDF files. This file type (${mediaData.mimetype}) isn't supported yet.`);
+                                return;
+                            case 'too_large':
+                                await message.reply(`This file is too large for me to analyze (${mediaData.size}MB). Max size is ${mediaData.maxSize}MB.`);
+                                return;
+                            case 'processing_failed':
+                                await message.reply(`Sorry, I had trouble processing that file. Try again or use a different format.`);
+                                return;
+                            default:
+                                await message.reply(`I couldn't process that media. Please try again.`);
+                                return;
+                        }
+                    }
+                    
+                    if (!mediaData) {
+                        await message.reply(`I couldn't find any media to analyze in that message.`);
+                        return;
+                    }
+                    
+                    console.log(`🤔 Generating multimodal AI response for ${senderName}...`);
+                    aiResponse = await getAIResponse(message.body, senderName, null, 'media_reply', mediaData);
+                    
+                } else if (replyCheck.isReply) {
                     // Get the context from the bot's original message
                     const originalMessage = replyCheck.quotedMessage.body || replyCheck.quotedMessage.caption || 'previous message';
                     console.log(`🔄 Replying with context from: "${originalMessage}"`);
                     console.log(`🤔 Generating AI response for ${senderName}...`);
                     aiResponse = await getAIResponse(message.body, senderName, originalMessage);
+                    
                 } else if (mentionCheck) {
                     // Check if this mention is a reply to someone else's message (not the bot's)
                     let contextMessage = null;
