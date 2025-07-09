@@ -132,6 +132,37 @@ function searchDocuments(documentsPath, query) {
     }
 }
 
+function getOrderedDocuments(documentsPath) {
+    try {
+        if (!fs.existsSync(documentsPath)) {
+            return [];
+        }
+        
+        const files = fs.readdirSync(documentsPath);
+        const documents = [];
+        
+        for (const file of files) {
+            const filePath = path.join(documentsPath, file);
+            const stats = fs.statSync(filePath);
+            
+            if (stats.isFile()) {
+                documents.push({
+                    name: file,
+                    path: filePath,
+                    size: stats.size,
+                    modified: stats.mtime
+                });
+            }
+        }
+        
+        // Sort by most recently modified (same as ?list command)
+        return documents.sort((a, b) => b.modified - a.modified);
+    } catch (error) {
+        console.error('❌ Error getting ordered documents:', error);
+        return [];
+    }
+}
+
 // Create client with optimized settings
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -1185,36 +1216,64 @@ client.on('message_create', async message => {
             const renameText = message.body.substring(8).trim(); // Remove "?rename "
             
             if (!renameText.includes(':')) {
-                return message.reply('Usage: ?rename oldname:newname\nExample: ?rename old_document.pdf:new_document.pdf');
+                return message.reply('Usage: ?rename oldname:newname or ?rename number:newname\nExample: ?rename old_document.pdf:new_document.pdf or ?rename 1:new_document.pdf');
             }
             
-            const [oldName, newNameInput] = renameText.split(':').map(name => name.trim());
+            const [oldIdentifier, newNameInput] = renameText.split(':').map(name => name.trim());
             
-            if (!oldName || !newNameInput) {
-                return message.reply('Usage: ?rename oldname:newname\nBoth old and new names are required.');
+            if (!oldIdentifier || !newNameInput) {
+                return message.reply('Usage: ?rename oldname:newname or ?rename number:newname\nBoth old identifier and new name are required.');
             }
             
             try {
                 const documentsPath = getGroupDocumentsFolder(chat);
-                const searchResults = searchDocuments(documentsPath, oldName);
+                let fileToRename = null;
                 
-                if (searchResults.length === 0) {
-                    await message.reply(`📄 No document found matching "${oldName}".`);
-                    return;
-                }
-                
-                // Get the best match
-                const fileToRename = searchResults[0];
-                
-                // Check if multiple matches and score is low
-                if (searchResults.length > 1 && fileToRename.score < 90) {
-                    let resultText = `📄 Multiple files match "${oldName}":\n\n`;
-                    searchResults.slice(0, 5).forEach((doc, index) => {
-                        resultText += `${index + 1}. ${doc.filename}\n`;
-                    });
-                    resultText += `\nPlease be more specific with the filename.`;
-                    await message.reply(resultText);
-                    return;
+                // Check if oldIdentifier is a number (index)
+                const indexNumber = parseInt(oldIdentifier);
+                if (!isNaN(indexNumber) && indexNumber > 0) {
+                    // Rename by index number
+                    const orderedDocs = getOrderedDocuments(documentsPath);
+                    
+                    if (orderedDocs.length === 0) {
+                        await message.reply(`📄 No documents stored yet for this group.`);
+                        return;
+                    }
+                    
+                    if (indexNumber > orderedDocs.length) {
+                        await message.reply(`📄 Invalid number. There are only ${orderedDocs.length} documents. Use ?list to see all files.`);
+                        return;
+                    }
+                    
+                    fileToRename = {
+                        filename: orderedDocs[indexNumber - 1].name,
+                        path: orderedDocs[indexNumber - 1].path,
+                        score: 100 // Perfect match for index
+                    };
+                    
+                    console.log(`📝 Renaming by index ${indexNumber}: ${fileToRename.filename}`);
+                } else {
+                    // Fallback to fuzzy search by name
+                    const searchResults = searchDocuments(documentsPath, oldIdentifier);
+                    
+                    if (searchResults.length === 0) {
+                        await message.reply(`📄 No document found matching "${oldIdentifier}". Use ?list to see all files or ?rename <number>:newname.`);
+                        return;
+                    }
+                    
+                    // Get the best match
+                    fileToRename = searchResults[0];
+                    
+                    // Check if multiple matches and score is low
+                    if (searchResults.length > 1 && fileToRename.score < 90) {
+                        let resultText = `📄 Multiple files match "${oldIdentifier}":\n\n`;
+                        searchResults.slice(0, 5).forEach((doc, index) => {
+                            resultText += `${index + 1}. ${doc.filename}\n`;
+                        });
+                        resultText += `\nPlease be more specific with the filename or use ?rename <number>:newname.`;
+                        await message.reply(resultText);
+                        return;
+                    }
                 }
                 
                 // Preserve file extension if not provided in new name
@@ -1252,16 +1311,56 @@ client.on('message_create', async message => {
             const query = message.body.substring(7).trim(); // Remove "?fetch "
             
             if (!query) {
-                return message.reply('Usage: ?fetch <document name>\nExample: ?fetch meeting notes');
+                return message.reply('Usage: ?fetch <document name or number>\nExample: ?fetch meeting notes or ?fetch 1');
             }
             
             try {
                 const documentsPath = getGroupDocumentsFolder(chat);
+                
+                // Check if query is a number (index)
+                const indexNumber = parseInt(query);
+                if (!isNaN(indexNumber) && indexNumber > 0) {
+                    // Fetch by index number
+                    const orderedDocs = getOrderedDocuments(documentsPath);
+                    
+                    if (orderedDocs.length === 0) {
+                        const groupName = chat.isGroup ? chat.name : 'this chat';
+                        await message.reply(`📄 No documents stored yet for ${groupName}.`);
+                        return;
+                    }
+                    
+                    if (indexNumber > orderedDocs.length) {
+                        await message.reply(`📄 Invalid number. There are only ${orderedDocs.length} documents. Use ?list to see all files.`);
+                        return;
+                    }
+                    
+                    const doc = orderedDocs[indexNumber - 1]; // Convert to 0-based index
+                    
+                    // Check file size
+                    const maxSize = 50 * 1024 * 1024; // 50MB
+                    if (doc.size > maxSize) {
+                        await message.reply(`📄 Found "${doc.name}" but it's too large to send (${Math.round(doc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
+                        return;
+                    }
+                    
+                    console.log(`📤 Sending document by index ${indexNumber}: ${doc.name} (${Math.round(doc.size / 1024)}KB)`);
+                    
+                    // Send the document
+                    const media = MessageMedia.fromFilePath(doc.path);
+                    await chat.sendMessage(media, {
+                        caption: `📄 ${doc.name}`
+                    });
+                    
+                    console.log(`✅ Document sent by index: ${doc.name}`);
+                    return;
+                }
+                
+                // Fallback to fuzzy search by name
                 const searchResults = searchDocuments(documentsPath, query);
                 
                 if (searchResults.length === 0) {
                     const groupName = chat.isGroup ? chat.name : 'this chat';
-                    await message.reply(`📄 No documents found for "${query}" in ${groupName}.\n\nTo add documents, simply send them as files to this group and I'll store them for future fetching.`);
+                    await message.reply(`📄 No documents found for "${query}" in ${groupName}.\n\nTo add documents, simply send them as files to this group and I'll store them for future fetching.\n\nYou can also use ?list to see all files and ?fetch <number> to get by index.`);
                     return;
                 }
                 
@@ -1286,7 +1385,7 @@ client.on('message_create', async message => {
                     
                     console.log(`✅ Document sent: ${doc.filename}`);
                 } else {
-                    // Multiple results - show list
+                    // Multiple results - show list with index numbers
                     let resultText = `📄 Found multiple documents for "${query}":\n\n`;
                     
                     searchResults.slice(0, 5).forEach((doc, index) => {
@@ -1298,13 +1397,102 @@ client.on('message_create', async message => {
                         resultText += `... and ${searchResults.length - 5} more\n`;
                     }
                     
-                    resultText += `\nUse ?fetch with a more specific name to get the exact document.`;
+                    resultText += `\nUse ?fetch with a more specific name or ?fetch <number> to get the exact document.`;
                     await message.reply(resultText);
                 }
                 
             } catch (error) {
                 console.error('❌ Error in fetch command:', error);
                 await message.reply('Sorry, there was an error searching for documents. Please try again.');
+            }
+        }
+        
+        // DELETE COMMAND (Owner only - hidden from help)
+        else if (message.body.startsWith('?delete ')) {
+            const chat = await message.getChat();
+            const deleteQuery = message.body.substring(8).trim(); // Remove "?delete "
+            
+            // Check if sender is the owner
+            const senderId = message.author || message.from;
+            if (senderId !== '917428233446@c.us') {
+                // Silently ignore - don't reveal the command exists
+                return;
+            }
+            
+            if (!deleteQuery) {
+                return message.reply('Usage: ?delete <document name or number>\nExample: ?delete meeting notes or ?delete 1');
+            }
+            
+            try {
+                const documentsPath = getGroupDocumentsFolder(chat);
+                let fileToDelete = null;
+                
+                // Check if deleteQuery is a number (index)
+                const indexNumber = parseInt(deleteQuery);
+                if (!isNaN(indexNumber) && indexNumber > 0) {
+                    // Delete by index number
+                    const orderedDocs = getOrderedDocuments(documentsPath);
+                    
+                    if (orderedDocs.length === 0) {
+                        await message.reply(`📄 No documents stored yet for this group.`);
+                        return;
+                    }
+                    
+                    if (indexNumber > orderedDocs.length) {
+                        await message.reply(`📄 Invalid number. There are only ${orderedDocs.length} documents. Use ?list to see all files.`);
+                        return;
+                    }
+                    
+                    fileToDelete = {
+                        filename: orderedDocs[indexNumber - 1].name,
+                        path: orderedDocs[indexNumber - 1].path,
+                        score: 100 // Perfect match for index
+                    };
+                    
+                    console.log(`🗑️ Deleting by index ${indexNumber}: ${fileToDelete.filename}`);
+                } else {
+                    // Fallback to fuzzy search by name
+                    const searchResults = searchDocuments(documentsPath, deleteQuery);
+                    
+                    if (searchResults.length === 0) {
+                        await message.reply(`📄 No document found matching "${deleteQuery}". Use ?list to see all files or ?delete <number>.`);
+                        return;
+                    }
+                    
+                    // Get the best match
+                    fileToDelete = searchResults[0];
+                    
+                    // Check if multiple matches and score is low
+                    if (searchResults.length > 1 && fileToDelete.score < 90) {
+                        let resultText = `📄 Multiple files match "${deleteQuery}":\n\n`;
+                        searchResults.slice(0, 5).forEach((doc, index) => {
+                            resultText += `${index + 1}. ${doc.filename}\n`;
+                        });
+                        resultText += `\nPlease be more specific with the filename or use ?delete <number>.`;
+                        await message.reply(resultText);
+                        return;
+                    }
+                }
+                
+                // Perform the deletion
+                const fileToDeletePath = fileToDelete.path;
+                const fileToDeleteName = fileToDelete.filename;
+                
+                // Double-check file exists before deletion
+                if (!fs.existsSync(fileToDeletePath)) {
+                    await message.reply(`📄 File "${fileToDeleteName}" not found on disk.`);
+                    return;
+                }
+                
+                // Delete the file
+                fs.unlinkSync(fileToDeletePath);
+                
+                console.log(`🗑️ Deleted: ${fileToDeleteName} by owner`);
+                await message.reply(`🗑️ Successfully deleted "${fileToDeleteName}"`);
+                
+            } catch (error) {
+                console.error('❌ Error deleting file:', error);
+                await message.reply('Sorry, there was an error deleting the file. Please try again.');
             }
         }
         
@@ -1328,12 +1516,13 @@ client.on('message_create', async message => {
                 `   • Up to 12 options allowed\n\n` +
                 `📄 DOCUMENTS:\n` +
                 `   ?list - Show all stored documents in this group\n` +
-                `   ?fetch <name> - Find and send document from group folder\n` +
-                `   ?rename oldname:newname - Rename a stored document\n` +
-                `   Example: ?fetch meeting notes, ?rename old.pdf:new.pdf\n` +
+                `   ?fetch <name or number> - Find and send document from group folder\n` +
+                `   ?rename oldname:newname or ?rename number:newname - Rename a stored document\n` +
+                `   Example: ?fetch meeting notes, ?fetch 1, ?rename old.pdf:new.pdf, ?rename 1:new.pdf\n` +
                 `   • Automatically stores documents and images (no videos/audio/gifs)\n` +
                 `   • Searches with fuzzy matching (handles typos)\n` +
-                `   • Each group has its own document storage\n`;
+                `   • Each group has its own document storage\n` +
+                `   • Use numbers from ?list for quick access\n`;
             
             await message.reply(helpMessage);
         }
