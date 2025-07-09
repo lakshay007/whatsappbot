@@ -5,28 +5,42 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-// Initialize Gemini AI with model switching
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Initialize Gemini AI with model switching using multiple API keys
+const genAI1 = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI2 = process.env.GEMINI_API_KEY2 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY2) : null;
 
-// Model switching setup
-const GEMINI_MODELS = [
-    'gemini-2.0-flash',         // Default
-    'gemini-1.5-flash',         // Fallback 1  
-    'gemini-2.0-flash-lite'     // Fallback 2
+// Model and API key rotation setup
+const MODEL_ROTATION = [
+    { model: 'gemini-2.0-flash', client: genAI1, keyName: 'KEY1' },
+    { model: 'gemini-1.5-flash', client: genAI1, keyName: 'KEY1' },
+    { model: 'gemini-2.0-flash-lite', client: genAI1, keyName: 'KEY1' }
 ];
 
-let currentModelIndex = 0; // Start with gemini-2.0-flash
-
-// Simple model getter
-function getCurrentModel() {
-    const modelName = GEMINI_MODELS[currentModelIndex];
-    return genAI.getGenerativeModel({ model: modelName });
+// Add second API key models if available
+if (genAI2) {
+    MODEL_ROTATION.push(
+        { model: 'gemini-2.0-flash', client: genAI2, keyName: 'KEY2' },
+        { model: 'gemini-1.5-flash', client: genAI2, keyName: 'KEY2' },
+        { model: 'gemini-2.0-flash-lite', client: genAI2, keyName: 'KEY2' }
+    );
+    console.log('🔑 Dual API key rotation enabled - 6 model combinations available');
+} else {
+    console.log('🔑 Single API key mode - 3 model combinations available');
 }
 
-// Basic switching logic
+let currentModelIndex = 0; // Start with first combination
+
+// Enhanced model getter
+function getCurrentModel() {
+    const current = MODEL_ROTATION[currentModelIndex];
+    return current.client.getGenerativeModel({ model: current.model });
+}
+
+// Enhanced switching logic
 function switchToNextModel() {
-    currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
-    console.log(`🔄 Switched to: ${GEMINI_MODELS[currentModelIndex]}`);
+    currentModelIndex = (currentModelIndex + 1) % MODEL_ROTATION.length;
+    const current = MODEL_ROTATION[currentModelIndex];
+    console.log(`🔄 Switched to: ${current.model} (${current.keyName})`);
 }
 
 // Bot health monitoring variables
@@ -728,7 +742,8 @@ Now respond to: ${userMessage}`;
         const response = await result.response;
         return response.text().trim();
     } catch (error) {
-        console.error(`❌ ${GEMINI_MODELS[currentModelIndex]} failed:`, error.message);
+        const current = MODEL_ROTATION[currentModelIndex];
+        console.error(`❌ ${current.model} (${current.keyName}) failed:`, error.message);
         
         // Check for quota violations and log details
         if (error.errorDetails && Array.isArray(error.errorDetails)) {
@@ -755,7 +770,8 @@ Now respond to: ${userMessage}`;
             const response = await result.response;
             return response.text().trim();
         } catch (secondError) {
-            console.error(`❌ ${GEMINI_MODELS[currentModelIndex]} also failed:`, secondError.message);
+            const currentSecond = MODEL_ROTATION[currentModelIndex];
+            console.error(`❌ ${currentSecond.model} (${currentSecond.keyName}) also failed:`, secondError.message);
             
             // Switch again for next time
             switchToNextModel();
@@ -1530,11 +1546,14 @@ client.on('message_create', async message => {
         // BOT STATUS COMMAND
         else if (message.body === '!status' || message.body === '!health') {
             const uptime = Math.floor((Date.now() - lastHeartbeat) / 1000);
+            const current = MODEL_ROTATION[currentModelIndex];
             const status = `🤖 Bot Status:
 ✅ Active and healthy
 ⏰ Last activity: ${uptime}s ago
 🔄 Reconnect attempts: ${reconnectAttempts}
-📱 Ready: ${isReady ? 'Yes' : 'No'}`;
+📱 Ready: ${isReady ? 'Yes' : 'No'}
+🧠 Current AI: ${current.model} (${current.keyName})
+🔑 Total models: ${MODEL_ROTATION.length}`;
             await message.reply(status);
         }
         
