@@ -8,11 +8,11 @@ require('dotenv').config();
 // Initialize Gemini AI with model switching using multiple API keys
 const genAI1 = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const genAI2 = process.env.GEMINI_API_KEY2 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY2) : null;
+const genAI3 = process.env.GEMINI_API_KEY3 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY3) : null;
 
-// Model and API key rotation setup
+// Model and API key rotation setup (only 2.0-flash and 2.0-flash-lite)
 const MODEL_ROTATION = [
     { model: 'gemini-2.0-flash', client: genAI1, keyName: 'KEY1' },
-    { model: 'gemini-1.5-flash', client: genAI1, keyName: 'KEY1' },
     { model: 'gemini-2.0-flash-lite', client: genAI1, keyName: 'KEY1' }
 ];
 
@@ -20,12 +20,30 @@ const MODEL_ROTATION = [
 if (genAI2) {
     MODEL_ROTATION.push(
         { model: 'gemini-2.0-flash', client: genAI2, keyName: 'KEY2' },
-        { model: 'gemini-1.5-flash', client: genAI2, keyName: 'KEY2' },
         { model: 'gemini-2.0-flash-lite', client: genAI2, keyName: 'KEY2' }
     );
-    console.log('🔑 Dual API key rotation enabled - 6 model combinations available');
+}
+
+// Add third API key models if available
+if (genAI3) {
+    MODEL_ROTATION.push(
+        { model: 'gemini-2.0-flash', client: genAI3, keyName: 'KEY3' },
+        { model: 'gemini-2.0-flash-lite', client: genAI3, keyName: 'KEY3' }
+    );
+}
+
+// Log the configuration
+const keyCount = 1 + (genAI2 ? 1 : 0) + (genAI3 ? 1 : 0);
+const totalCombinations = MODEL_ROTATION.length;
+console.log(`🔑 API key rotation enabled - ${keyCount} keys, ${totalCombinations} model combinations available`);
+console.log(`📋 Models: gemini-2.0-flash, gemini-2.0-flash-lite (1.5-flash removed)`);
+
+if (genAI2 && genAI3) {
+    console.log('🚀 Triple API key mode activated!');
+} else if (genAI2) {
+    console.log('🔄 Dual API key mode activated');
 } else {
-    console.log('🔑 Single API key mode - 3 model combinations available');
+    console.log('⚡ Single API key mode');
 }
 
 let currentModelIndex = 0; // Start with first combination
@@ -740,79 +758,29 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 
 Now respond to: ${userMessage}`;
 
-    // Try current model
-    try {
-        const model = getCurrentModel();
-        console.log('🔍 Generating AI response with Google grounding enabled...');
-        const result = await model.generateContent({
-            contents: [{ parts: [{ text: prompt }] }],
-            tools: [groundingTool]
-        });
-        const response = await result.response;
-        
-        // Check if Google Search was used
-        const candidates = response.candidates;
-        if (candidates && candidates[0] && candidates[0].groundingMetadata) {
-            const groundingData = candidates[0].groundingMetadata;
-            
-            if (groundingData.webSearchQueries && groundingData.webSearchQueries.length > 0) {
-                console.log('🌐 Google Search was used!');
-                console.log(`📋 Search queries: ${JSON.stringify(groundingData.webSearchQueries)}`);
-                
-                if (groundingData.groundingChunks && groundingData.groundingChunks.length > 0) {
-                    console.log(`📚 Sources found: ${groundingData.groundingChunks.length}`);
-                    groundingData.groundingChunks.forEach((chunk, index) => {
-                        if (chunk.web) {
-                            console.log(`   ${index + 1}. ${chunk.web.title || 'Unknown source'}`);
-                        }
-                    });
-                }
-            } else {
-                console.log('💭 Response generated without Google Search (used existing knowledge)');
-            }
-        } else {
-            console.log('💭 Response generated without Google Search (used existing knowledge)');
-        }
-        
-        return response.text().trim();
-    } catch (error) {
-        const current = MODEL_ROTATION[currentModelIndex];
-        console.error(`❌ ${current.model} (${current.keyName}) failed:`, error.message);
-        
-        // Check for quota violations and log details
-        if (error.errorDetails && Array.isArray(error.errorDetails)) {
-            console.log('🔍 Error details found, checking for quota violations...');
-            
-            error.errorDetails.forEach((detail, index) => {
-                console.log(`📋 Error detail ${index + 1}:`, detail);
-                
-                if (detail['@type'] === 'type.googleapis.com/google.rpc.QuotaFailure' && detail.violations) {
-                    console.log('⚠️ Quota violation details:');
-                    detail.violations.forEach((violation, violationIndex) => {
-                        console.log(`  📊 Violation ${violationIndex + 1}:`, JSON.stringify(violation, null, 2));
-                    });
-                }
-            });
-        }
-        
-        // Switch and try once more
-        switchToNextModel();
-        
+    // Try all available models before giving up
+    const startingIndex = currentModelIndex;
+    let attemptCount = 0;
+    
+    while (attemptCount < MODEL_ROTATION.length) {
         try {
-            const model = getCurrentModel();  
+            const model = getCurrentModel();
+            const current = MODEL_ROTATION[currentModelIndex];
+            console.log(`🔍 Attempt ${attemptCount + 1}/${MODEL_ROTATION.length}: ${current.model} (${current.keyName})`);
+            
             const result = await model.generateContent({
                 contents: [{ parts: [{ text: prompt }] }],
                 tools: [groundingTool]
             });
             const response = await result.response;
             
-            // Check if Google Search was used (fallback attempt)
+            // Check if Google Search was used
             const candidates = response.candidates;
             if (candidates && candidates[0] && candidates[0].groundingMetadata) {
                 const groundingData = candidates[0].groundingMetadata;
                 
                 if (groundingData.webSearchQueries && groundingData.webSearchQueries.length > 0) {
-                    console.log('🌐 Google Search was used! (fallback model)');
+                    console.log('🌐 Google Search was used!');
                     console.log(`📋 Search queries: ${JSON.stringify(groundingData.webSearchQueries)}`);
                     
                     if (groundingData.groundingChunks && groundingData.groundingChunks.length > 0) {
@@ -824,23 +792,51 @@ Now respond to: ${userMessage}`;
                         });
                     }
                 } else {
-                    console.log('💭 Response generated without Google Search (used existing knowledge) - fallback model');
+                    console.log('💭 Response generated without Google Search (used existing knowledge)');
                 }
             } else {
-                console.log('💭 Response generated without Google Search (used existing knowledge) - fallback model');
+                console.log('💭 Response generated without Google Search (used existing knowledge)');
             }
             
+            console.log(`✅ Success with ${current.model} (${current.keyName})`);
             return response.text().trim();
-        } catch (secondError) {
-            const currentSecond = MODEL_ROTATION[currentModelIndex];
-            console.error(`❌ ${currentSecond.model} (${currentSecond.keyName}) also failed:`, secondError.message);
             
-            // Switch again for next time
+        } catch (error) {
+            const current = MODEL_ROTATION[currentModelIndex];
+            console.error(`❌ ${current.model} (${current.keyName}) failed:`, error.message);
+            
+            // Check for quota violations and log details
+            if (error.errorDetails && Array.isArray(error.errorDetails)) {
+                console.log('🔍 Error details found, checking for quota violations...');
+                
+                error.errorDetails.forEach((detail, index) => {
+                    console.log(`📋 Error detail ${index + 1}:`, detail);
+                    
+                    if (detail['@type'] === 'type.googleapis.com/google.rpc.QuotaFailure' && detail.violations) {
+                        console.log('⚠️ Quota violation details:');
+                        detail.violations.forEach((violation, violationIndex) => {
+                            console.log(`  📊 Violation ${violationIndex + 1}:`, JSON.stringify(violation, null, 2));
+                        });
+                    }
+                });
+            }
+            
+            // Switch to next model and try again
             switchToNextModel();
+            attemptCount++;
             
-            return "Hey! I'm having trouble thinking right now. Try again?";
+            // If we've tried all models, break out
+            if (attemptCount >= MODEL_ROTATION.length) {
+                console.error(`❌ All ${MODEL_ROTATION.length} model combinations failed!`);
+                return "Hey! I'm having trouble thinking right now. All my AI models are having issues. Try again in a bit?";
+            }
+            
+            console.log(`🔄 Switching to next model (attempt ${attemptCount + 1}/${MODEL_ROTATION.length})...`);
         }
     }
+    
+    // This should never be reached, but just in case
+    return "Hey! I'm having trouble thinking right now. Try again?";
 }
 
 client.on('message_create', async message => {
