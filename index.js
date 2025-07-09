@@ -749,6 +749,31 @@ Now respond to: ${userMessage}`;
             tools: [groundingTool]
         });
         const response = await result.response;
+        
+        // Check if Google Search was used
+        const candidates = response.candidates;
+        if (candidates && candidates[0] && candidates[0].groundingMetadata) {
+            const groundingData = candidates[0].groundingMetadata;
+            
+            if (groundingData.webSearchQueries && groundingData.webSearchQueries.length > 0) {
+                console.log('🌐 Google Search was used!');
+                console.log(`📋 Search queries: ${JSON.stringify(groundingData.webSearchQueries)}`);
+                
+                if (groundingData.groundingChunks && groundingData.groundingChunks.length > 0) {
+                    console.log(`📚 Sources found: ${groundingData.groundingChunks.length}`);
+                    groundingData.groundingChunks.forEach((chunk, index) => {
+                        if (chunk.web) {
+                            console.log(`   ${index + 1}. ${chunk.web.title || 'Unknown source'}`);
+                        }
+                    });
+                }
+            } else {
+                console.log('💭 Response generated without Google Search (used existing knowledge)');
+            }
+        } else {
+            console.log('💭 Response generated without Google Search (used existing knowledge)');
+        }
+        
         return response.text().trim();
     } catch (error) {
         const current = MODEL_ROTATION[currentModelIndex];
@@ -780,6 +805,31 @@ Now respond to: ${userMessage}`;
                 tools: [groundingTool]
             });
             const response = await result.response;
+            
+            // Check if Google Search was used (fallback attempt)
+            const candidates = response.candidates;
+            if (candidates && candidates[0] && candidates[0].groundingMetadata) {
+                const groundingData = candidates[0].groundingMetadata;
+                
+                if (groundingData.webSearchQueries && groundingData.webSearchQueries.length > 0) {
+                    console.log('🌐 Google Search was used! (fallback model)');
+                    console.log(`📋 Search queries: ${JSON.stringify(groundingData.webSearchQueries)}`);
+                    
+                    if (groundingData.groundingChunks && groundingData.groundingChunks.length > 0) {
+                        console.log(`📚 Sources found: ${groundingData.groundingChunks.length}`);
+                        groundingData.groundingChunks.forEach((chunk, index) => {
+                            if (chunk.web) {
+                                console.log(`   ${index + 1}. ${chunk.web.title || 'Unknown source'}`);
+                            }
+                        });
+                    }
+                } else {
+                    console.log('💭 Response generated without Google Search (used existing knowledge) - fallback model');
+                }
+            } else {
+                console.log('💭 Response generated without Google Search (used existing knowledge) - fallback model');
+            }
+            
             return response.text().trim();
         } catch (secondError) {
             const currentSecond = MODEL_ROTATION[currentModelIndex];
