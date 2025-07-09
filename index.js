@@ -440,10 +440,6 @@ const groundingTool = {
     googleSearch: {},
 };
 
-const generationConfig = {
-    tools: [groundingTool],
-};
-
 // Function to get AI response from Gemini
 async function executeNaturalCommand(message, aiResponse, chat, senderName) {
     try {
@@ -749,8 +745,8 @@ Now respond to: ${userMessage}`;
         const model = getCurrentModel();
         console.log('🔍 Generating AI response with Google grounding enabled...');
         const result = await model.generateContent({
-            contents: prompt,
-            ...generationConfig
+            contents: [{ parts: [{ text: prompt }] }],
+            tools: [groundingTool]
         });
         const response = await result.response;
         return response.text().trim();
@@ -780,8 +776,8 @@ Now respond to: ${userMessage}`;
         try {
             const model = getCurrentModel();  
             const result = await model.generateContent({
-                contents: prompt,
-                ...generationConfig
+                contents: [{ parts: [{ text: prompt }] }],
+                tools: [groundingTool]
             });
             const response = await result.response;
             return response.text().trim();
