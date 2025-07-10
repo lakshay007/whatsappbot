@@ -895,13 +895,9 @@ Now respond to: ${userMessage}`;
             console.log(`🔍 Attempt ${attemptCount + 1}/${MODEL_ROTATION.length}: ${current.model} (${current.keyName})`);
             
             const requestConfig = {
-                contents: [{ parts: contentParts }]
+                contents: [{ parts: contentParts }],
+                tools: [groundingTool]  // Always include grounding for both text and multimodal requests
             };
-            
-            // Add grounding tools for text-only requests (multimodal might not support grounding yet)
-            if (!isMultimodal) {
-                requestConfig.tools = [groundingTool];
-            }
             
             const result = await model.generateContent(requestConfig);
             const response = await result.response;
