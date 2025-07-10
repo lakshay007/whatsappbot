@@ -3,6 +3,12 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
+const sharp = require('sharp');
+const mammoth = require('mammoth');
+const { PDFDocument } = require('pdf-lib');
+const { jsPDF } = require('jspdf');
+const pdf2pic = require('pdf2pic');
+const htmlPdf = require('html-pdf-node');
 require('dotenv').config();
 
 // Initialize Gemini AI with model switching using multiple API keys
@@ -71,6 +77,231 @@ let keepAliveInterval;
 let isRestarting = false;
 
 // Native WhatsApp polls - no storage needed!
+
+// File conversion utility functions
+async function convertFile(media, targetFormat, originalFilename) {
+    try {
+        console.log(`🔄 Converting ${media.mimetype} to ${targetFormat} for file: ${originalFilename}`);
+        
+        const buffer = Buffer.from(media.data, 'base64');
+        let outputBuffer = null;
+        let outputFilename = '';
+        let outputMimetype = '';
+        
+        // Get base filename without extension
+        const baseName = path.parse(originalFilename || 'converted_file').name;
+        
+        switch (targetFormat.toLowerCase()) {
+            case 'pdf':
+                outputBuffer = await convertToPDF(buffer, media.mimetype, baseName);
+                outputFilename = `${baseName}.pdf`;
+                outputMimetype = 'application/pdf';
+                break;
+                
+            case 'jpg':
+            case 'jpeg':
+                outputBuffer = await convertToJPEG(buffer, media.mimetype);
+                outputFilename = `${baseName}.jpg`;
+                outputMimetype = 'image/jpeg';
+                break;
+                
+            case 'png':
+                outputBuffer = await convertToPNG(buffer, media.mimetype);
+                outputFilename = `${baseName}.png`;
+                outputMimetype = 'image/png';
+                break;
+                
+            case 'txt':
+                const textResult = await convertToText(buffer, media.mimetype);
+                outputBuffer = Buffer.from(textResult, 'utf8');
+                outputFilename = `${baseName}.txt`;
+                outputMimetype = 'text/plain';
+                break;
+                
+            case 'docx':
+                outputBuffer = await convertToDocx(buffer, media.mimetype, baseName);
+                outputFilename = `${baseName}.docx`;
+                outputMimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                break;
+                
+            default:
+                throw new Error(`Unsupported conversion format: ${targetFormat}`);
+        }
+        
+        if (!outputBuffer) {
+            throw new Error('Conversion failed - no output generated');
+        }
+        
+        console.log(`✅ Conversion successful: ${originalFilename} → ${outputFilename}`);
+        
+        return {
+            buffer: outputBuffer,
+            filename: outputFilename,
+            mimetype: outputMimetype,
+            data: outputBuffer.toString('base64')
+        };
+        
+    } catch (error) {
+        console.error('❌ File conversion error:', error);
+        throw error;
+    }
+}
+
+async function convertToPDF(buffer, sourceMimetype, baseName) {
+    if (sourceMimetype.startsWith('image/')) {
+        // Image to PDF
+        const pdfDoc = await PDFDocument.create();
+        
+        let imageEmbed;
+        if (sourceMimetype.includes('png')) {
+            imageEmbed = await pdfDoc.embedPng(buffer);
+        } else {
+            imageEmbed = await pdfDoc.embedJpg(buffer);
+        }
+        
+        const page = pdfDoc.addPage([imageEmbed.width, imageEmbed.height]);
+        page.drawImage(imageEmbed, {
+            x: 0,
+            y: 0,
+            width: imageEmbed.width,
+            height: imageEmbed.height,
+        });
+        
+        const pdfBytes = await pdfDoc.save();
+        return Buffer.from(pdfBytes);
+        
+    } else if (sourceMimetype.includes('word') || sourceMimetype.includes('docx')) {
+        // DOCX to PDF (via HTML)
+        const result = await mammoth.convertToHtml({ buffer });
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>${baseName}</title>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+                </style>
+            </head>
+            <body>
+                ${result.value}
+            </body>
+            </html>
+        `;
+        
+        const options = { format: 'A4' };
+        const file = { content: htmlContent };
+        const pdfBuffer = await htmlPdf.generatePdf(file, options);
+        return pdfBuffer;
+        
+    } else if (sourceMimetype.includes('text/plain')) {
+        // Text to PDF
+        const textContent = buffer.toString('utf8');
+        const doc = new jsPDF();
+        
+        const lines = doc.splitTextToSize(textContent, 180);
+        doc.text(lines, 10, 10);
+        
+        const pdfBytes = doc.output('arraybuffer');
+        return Buffer.from(pdfBytes);
+    }
+    
+    throw new Error(`Cannot convert ${sourceMimetype} to PDF`);
+}
+
+async function convertToJPEG(buffer, sourceMimetype) {
+    if (sourceMimetype.startsWith('image/')) {
+        return await sharp(buffer)
+            .jpeg({ quality: 90 })
+            .toBuffer();
+    } else if (sourceMimetype.includes('pdf')) {
+        // PDF to JPEG (first page)
+        // Ensure temp directory exists
+        const tempDir = path.join(__dirname, 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        
+        const convert = pdf2pic.fromBuffer(buffer, {
+            density: 100,
+            saveFilename: "untitled",
+            savePath: tempDir,
+            format: "jpg",
+            width: 1500,
+            height: 2000
+        });
+        
+        const result = await convert(1, { responseType: "buffer" });
+        return result.buffer;
+    }
+    
+    throw new Error(`Cannot convert ${sourceMimetype} to JPEG`);
+}
+
+async function convertToPNG(buffer, sourceMimetype) {
+    if (sourceMimetype.startsWith('image/')) {
+        return await sharp(buffer)
+            .png()
+            .toBuffer();
+    } else if (sourceMimetype.includes('pdf')) {
+        // PDF to PNG (first page)
+        // Ensure temp directory exists
+        const tempDir = path.join(__dirname, 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        
+        const convert = pdf2pic.fromBuffer(buffer, {
+            density: 100,
+            saveFilename: "untitled",
+            savePath: tempDir,
+            format: "png",
+            width: 1500,
+            height: 2000
+        });
+        
+        const result = await convert(1, { responseType: "buffer" });
+        return result.buffer;
+    }
+    
+    throw new Error(`Cannot convert ${sourceMimetype} to PNG`);
+}
+
+async function convertToText(buffer, sourceMimetype) {
+    if (sourceMimetype.includes('word') || sourceMimetype.includes('docx')) {
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
+    } else if (sourceMimetype.includes('pdf')) {
+        // For PDF to text, we'd need pdf-parse or similar
+        // For now, we'll return a placeholder
+        throw new Error('PDF to text conversion requires additional setup. Try converting to DOCX first.');
+    } else if (sourceMimetype.includes('text/plain')) {
+        return buffer.toString('utf8');
+    }
+    
+    throw new Error(`Cannot convert ${sourceMimetype} to text`);
+}
+
+async function convertToDocx(buffer, sourceMimetype, baseName) {
+    // This is complex and would require LibreOffice or similar
+    throw new Error('DOCX conversion requires LibreOffice setup. Try converting to PDF or text instead.');
+}
+
+function getSupportedConversions(mimetype) {
+    const conversions = [];
+    
+    if (mimetype.startsWith('image/')) {
+        conversions.push('pdf', 'jpg', 'png');
+    } else if (mimetype.includes('pdf')) {
+        conversions.push('jpg', 'png');
+    } else if (mimetype.includes('word') || mimetype.includes('docx')) {
+        conversions.push('pdf', 'txt');
+    } else if (mimetype.includes('text/plain')) {
+        conversions.push('pdf');
+    }
+    
+    return conversions;
+}
 
 // Document management functions
 function sanitizeGroupName(groupName) {
@@ -1695,6 +1926,84 @@ client.on('message_create', async message => {
             }
         }
         
+        // CONVERT COMMAND
+        else if (message.body.startsWith('?convert ')) {
+            const chat = await message.getChat();
+            const convertFormat = message.body.substring(9).trim().toLowerCase(); // Remove "?convert "
+            
+            if (!convertFormat) {
+                return message.reply('Usage: ?convert <format>\nReply to a file with ?convert pdf, ?convert jpg, ?convert png, ?convert txt\n\nExample: Reply to an image with "?convert pdf"');
+            }
+            
+            // Check if this message is a reply to another message with media
+            if (!message.hasQuotedMsg) {
+                return message.reply('You need to reply to a file/image to convert it.\nUsage: Reply to a file with ?convert <format>');
+            }
+            
+            try {
+                const quotedMsg = await message.getQuotedMessage();
+                
+                if (!quotedMsg.hasMedia) {
+                    return message.reply('The message you replied to doesn\'t contain any media to convert.');
+                }
+                
+                console.log(`🔄 Processing conversion request: ${convertFormat} for ${quotedMsg.type}`);
+                
+                // Download the media from the quoted message
+                const media = await quotedMsg.downloadMedia();
+                
+                if (!media || !media.mimetype) {
+                    return message.reply('Could not download the file. Please try again.');
+                }
+                
+                // Check if conversion is supported
+                const supportedFormats = getSupportedConversions(media.mimetype);
+                if (!supportedFormats.includes(convertFormat)) {
+                    const formatsText = supportedFormats.length > 0 ? supportedFormats.join(', ') : 'none';
+                    return message.reply(`Cannot convert ${media.mimetype} to ${convertFormat}.\nSupported conversions for this file type: ${formatsText}`);
+                }
+                
+                // Show typing indicator
+                await chat.sendStateTyping();
+                
+                // Get original filename
+                const originalFilename = media.filename || `file_${Date.now()}`;
+                
+                console.log(`🔄 Converting ${originalFilename} (${media.mimetype}) to ${convertFormat}`);
+                
+                // Perform the conversion
+                const convertedFile = await convertFile(media, convertFormat, originalFilename);
+                
+                // Create MessageMedia from the converted file
+                const convertedMedia = new MessageMedia(
+                    convertedFile.mimetype,
+                    convertedFile.data,
+                    convertedFile.filename
+                );
+                
+                // Send the converted file
+                await chat.sendMessage(convertedMedia, {
+                    caption: `✅ Converted: ${originalFilename} → ${convertedFile.filename}`
+                });
+                
+                console.log(`✅ Successfully converted and sent: ${convertedFile.filename}`);
+                
+            } catch (error) {
+                console.error('❌ Error in convert command:', error);
+                
+                let errorMessage = 'Sorry, there was an error converting the file.';
+                if (error.message.includes('Unsupported conversion')) {
+                    errorMessage = error.message;
+                } else if (error.message.includes('Cannot convert')) {
+                    errorMessage = error.message;
+                } else if (error.message.includes('requires additional setup')) {
+                    errorMessage = error.message;
+                }
+                
+                await message.reply(errorMessage);
+            }
+        }
+        
         // HELP COMMAND
         else if (message.body === '?help') {
             const helpMessage = `Chotu helper commands\n\n` +
@@ -1728,7 +2037,17 @@ client.on('message_create', async message => {
                 `   • Automatically stores documents and images (no videos/audio/gifs)\n` +
                 `   • Searches with fuzzy matching (handles typos)\n` +
                 `   • Each group has its own document storage\n` +
-                `   • Use numbers from ?list for quick access\n`;
+                `   • Use numbers from ?list for quick access\n\n` +
+                `🔄 FILE CONVERSION:\n` +
+                `   ?convert <format> - Convert files to different formats\n` +
+                `   Example: Reply to an image with "?convert pdf"\n` +
+                `   Supported conversions:\n` +
+                `   • Images → PDF, JPG, PNG\n` +
+                `   • PDF → JPG, PNG (first page)\n` +
+                `   • DOCX/Word → PDF, TXT\n` +
+                `   • Text files → PDF\n` +
+                `   • Reply to any file and use ?convert <format> to transform it\n` +
+                `   • Converted files are sent immediately (not stored)\n`;
             
             await message.reply(helpMessage);
         }
