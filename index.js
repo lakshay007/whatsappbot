@@ -72,6 +72,9 @@ let isRestarting = false;
 
 // Native WhatsApp polls - no storage needed!
 
+// Owner's last master search results storage
+let ownerLastMasterSearch = null;
+
 // Document management functions
 function sanitizeGroupName(groupName) {
     // Remove special characters and replace spaces with underscores
@@ -191,6 +194,71 @@ function getOrderedDocuments(documentsPath) {
         return documents.sort((a, b) => b.modified - a.modified);
     } catch (error) {
         console.error('❌ Error getting ordered documents:', error);
+        return [];
+    }
+}
+
+// Master search functions for owner-only global search
+function getAllGroupFolders() {
+    try {
+        const documentsPath = path.join(__dirname, 'documents');
+        
+        if (!fs.existsSync(documentsPath)) {
+            return [];
+        }
+        
+        const folders = fs.readdirSync(documentsPath);
+        const groupFolders = [];
+        
+        for (const folder of folders) {
+            const folderPath = path.join(documentsPath, folder);
+            const stats = fs.statSync(folderPath);
+            
+            if (stats.isDirectory()) {
+                groupFolders.push({
+                    name: folder,
+                    path: folderPath,
+                    displayName: folder.replace(/_/g, ' ') // Convert underscores back to spaces for display
+                });
+            }
+        }
+        
+        return groupFolders;
+    } catch (error) {
+        console.error('❌ Error getting group folders:', error);
+        return [];
+    }
+}
+
+function masterSearchDocuments(query) {
+    try {
+        const groupFolders = getAllGroupFolders();
+        const allResults = [];
+        
+        for (const groupFolder of groupFolders) {
+            const searchResults = searchDocuments(groupFolder.path, query);
+            
+            // Add group information to each result
+            for (const result of searchResults) {
+                allResults.push({
+                    ...result,
+                    groupName: groupFolder.name,
+                    groupDisplayName: groupFolder.displayName,
+                    groupPath: groupFolder.path
+                });
+            }
+        }
+        
+        // Sort all results by score (highest first), then by group name
+        return allResults.sort((a, b) => {
+            if (b.score !== a.score) {
+                return b.score - a.score;
+            }
+            return a.groupDisplayName.localeCompare(b.groupDisplayName);
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in master search:', error);
         return [];
     }
 }
@@ -1692,6 +1760,137 @@ client.on('message_create', async message => {
             } catch (error) {
                 console.error('❌ Error deleting file:', error);
                 await message.reply('Sorry, there was an error deleting the file. Please try again.');
+            }
+        }
+        
+        // MASTER SEARCH COMMAND (Owner only - hidden from help)
+        else if (message.body.startsWith('?mastersearch ')) {
+            const chat = await message.getChat();
+            const searchQuery = message.body.substring(14).trim(); // Remove "?mastersearch "
+            
+            // Check if sender is the owner
+            const senderId = message.author || message.from;
+            if (senderId !== '917428233446@c.us') {
+                // Silently ignore - don't reveal the command exists
+                return;
+            }
+            
+            if (!searchQuery) {
+                return message.reply('Usage: ?mastersearch <document name>\nExample: ?mastersearch meeting notes\n\nThis searches across ALL group folders for the file.');
+            }
+            
+            try {
+                console.log(`🔍 Master search initiated by owner for: "${searchQuery}"`);
+                
+                const searchResults = masterSearchDocuments(searchQuery);
+                
+                if (searchResults.length === 0) {
+                    await message.reply(`🔍 No documents found for "${searchQuery}" across all groups.\n\nSearched across all group folders.`);
+                    return;
+                }
+                
+                // If perfect match and only one result, send it directly
+                if (searchResults.length === 1 || (searchResults[0].score >= 90 && searchResults.filter(r => r.score >= 90).length === 1)) {
+                    const doc = searchResults[0];
+                    
+                    // Check file size (WhatsApp limit)
+                    const maxSize = 50 * 1024 * 1024; // 50MB
+                    if (doc.size > maxSize) {
+                        await message.reply(`🔍 Found "${doc.filename}" in group "${doc.groupDisplayName}" but it's too large to send (${Math.round(doc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
+                        return;
+                    }
+                    
+                    console.log(`📤 Sending document from master search: ${doc.filename} from ${doc.groupDisplayName} (${Math.round(doc.size / 1024)}KB)`);
+                    
+                    // Send the document
+                    const media = MessageMedia.fromFilePath(doc.path);
+                    await chat.sendMessage(media, {
+                        caption: `🔍 ${doc.filename}\n📁 From: ${doc.groupDisplayName}`
+                    });
+                    
+                    console.log(`✅ Master search document sent: ${doc.filename} from ${doc.groupDisplayName}`);
+                                 } else {
+                     // Multiple results - show list with group information and store for number selection
+                     ownerLastMasterSearch = {
+                         query: searchQuery,
+                         results: searchResults,
+                         timestamp: Date.now()
+                     };
+                     
+                     let resultText = `🔍 Found ${searchResults.length} documents for "${searchQuery}" across all groups:\n\n`;
+                     
+                     searchResults.slice(0, 10).forEach((doc, index) => {
+                         const sizeKB = Math.round(doc.size / 1024);
+                         resultText += `${index + 1}. ${doc.filename} (${sizeKB}KB)\n   📁 ${doc.groupDisplayName}\n\n`;
+                     });
+                     
+                     if (searchResults.length > 10) {
+                         resultText += `... and ${searchResults.length - 10} more results\n\n`;
+                     }
+                     
+                     resultText += `Reply with the number (1-${Math.min(searchResults.length, 10)}) to get the document.`;
+                     await message.reply(resultText);
+                 }
+                
+            } catch (error) {
+                console.error('❌ Error in master search command:', error);
+                await message.reply('Sorry, there was an error performing the master search. Please try again.');
+            }
+        }
+        
+        // MASTER SEARCH NUMBER SELECTION (Owner only - handle replies with numbers)
+        else if (message.body.match(/^\d+$/) && ownerLastMasterSearch) {
+            const chat = await message.getChat();
+            
+            // Check if sender is the owner
+            const senderId = message.author || message.from;
+            if (senderId !== '917428233446@c.us') {
+                // Not owner, continue to other handlers
+            } else {
+                // Check if the search results are still valid (within 10 minutes)
+                const searchAge = Date.now() - ownerLastMasterSearch.timestamp;
+                if (searchAge > 10 * 60 * 1000) { // 10 minutes
+                    ownerLastMasterSearch = null;
+                    await message.reply('🔍 Previous master search results have expired. Please search again with ?mastersearch.');
+                    return;
+                }
+                
+                const selectedNumber = parseInt(message.body);
+                const maxDisplayed = Math.min(ownerLastMasterSearch.results.length, 10);
+                
+                if (selectedNumber < 1 || selectedNumber > maxDisplayed) {
+                    await message.reply(`🔍 Please select a number between 1 and ${maxDisplayed}.`);
+                    return;
+                }
+                
+                try {
+                    const selectedDoc = ownerLastMasterSearch.results[selectedNumber - 1];
+                    
+                    // Check file size (WhatsApp limit)
+                    const maxSize = 50 * 1024 * 1024; // 50MB
+                    if (selectedDoc.size > maxSize) {
+                        await message.reply(`🔍 "${selectedDoc.filename}" from group "${selectedDoc.groupDisplayName}" is too large to send (${Math.round(selectedDoc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
+                        return;
+                    }
+                    
+                    console.log(`📤 Sending selected document from master search: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName} (${Math.round(selectedDoc.size / 1024)}KB)`);
+                    
+                    // Send the document
+                    const media = MessageMedia.fromFilePath(selectedDoc.path);
+                    await chat.sendMessage(media, {
+                        caption: `🔍 ${selectedDoc.filename}\n📁 From: ${selectedDoc.groupDisplayName}\n🔢 Selection ${selectedNumber} from "${ownerLastMasterSearch.query}"`
+                    });
+                    
+                    console.log(`✅ Selected master search document sent: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName}`);
+                    
+                    // Clear the search results after successful selection
+                    ownerLastMasterSearch = null;
+                    
+                } catch (error) {
+                    console.error('❌ Error sending selected master search document:', error);
+                    await message.reply('Sorry, there was an error sending the selected document. Please try again.');
+                }
+                return; // Important: return here to prevent falling through to other handlers
             }
         }
         
