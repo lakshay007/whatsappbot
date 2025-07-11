@@ -1838,6 +1838,80 @@ client.on('message_create', async message => {
             }
         }
         
+        // MASTER RENAME COMMAND (Owner only - rename files from master search results)
+        else if (message.body.startsWith('?masterrename ') && ownerLastMasterSearch) {
+            const chat = await message.getChat();
+            const renameText = message.body.substring(14).trim(); // Remove "?masterrename "
+            
+            // Check if sender is the owner
+            const senderId = message.author || message.from;
+            if (senderId !== '917428233446@c.us') {
+                // Silently ignore - don't reveal the command exists
+                return;
+            }
+            
+            if (!renameText.includes(':')) {
+                return message.reply('Usage: ?masterrename number:newname\nExample: ?masterrename 1:new_document.pdf\n\nRenames a file from the last master search results.');
+            }
+            
+            const [numberStr, newNameInput] = renameText.split(':').map(part => part.trim());
+            
+            if (!numberStr || !newNameInput) {
+                return message.reply('Usage: ?masterrename number:newname\nBoth number and new name are required.');
+            }
+            
+            // Check if the search results are still valid (within 10 minutes)
+            const searchAge = Date.now() - ownerLastMasterSearch.timestamp;
+            if (searchAge > 10 * 60 * 1000) { // 10 minutes
+                ownerLastMasterSearch = null;
+                await message.reply('🔍 Previous master search results have expired. Please search again with ?mastersearch.');
+                return;
+            }
+            
+            const selectedNumber = parseInt(numberStr);
+            const maxDisplayed = Math.min(ownerLastMasterSearch.results.length, 10);
+            
+            if (isNaN(selectedNumber) || selectedNumber < 1 || selectedNumber > maxDisplayed) {
+                await message.reply(`🔍 Please select a valid number between 1 and ${maxDisplayed}.`);
+                return;
+            }
+            
+            try {
+                const selectedDoc = ownerLastMasterSearch.results[selectedNumber - 1];
+                
+                // Preserve file extension if not provided in new name
+                const originalExt = path.extname(selectedDoc.filename);
+                let newName = newNameInput;
+                
+                // If new name doesn't have an extension, add the original extension
+                if (!path.extname(newName) && originalExt) {
+                    newName = newName + originalExt;
+                }
+                
+                // Check if new name already exists in the same group folder
+                const newFilePath = path.join(selectedDoc.groupPath, newName);
+                if (fs.existsSync(newFilePath)) {
+                    await message.reply(`📝 A file named "${newName}" already exists in group "${selectedDoc.groupDisplayName}". Choose a different name.`);
+                    return;
+                }
+                
+                // Perform the rename
+                const oldFilePath = selectedDoc.path;
+                fs.renameSync(oldFilePath, newFilePath);
+                
+                console.log(`📝 Master renamed: ${selectedDoc.filename} → ${newName} in ${selectedDoc.groupDisplayName} by owner`);
+                await message.reply(`📝 Successfully renamed "${selectedDoc.filename}" to "${newName}" in group "${selectedDoc.groupDisplayName}"`);
+                
+                // Update the search results with the new filename
+                ownerLastMasterSearch.results[selectedNumber - 1].filename = newName;
+                ownerLastMasterSearch.results[selectedNumber - 1].path = newFilePath;
+                
+            } catch (error) {
+                console.error('❌ Error in master rename command:', error);
+                await message.reply('Sorry, there was an error renaming the file. Please try again.');
+            }
+        }
+        
         // MASTER SEARCH NUMBER SELECTION (Owner only - handle replies with numbers)
         else if (message.body.match(/^\d+$/) && ownerLastMasterSearch) {
             const chat = await message.getChat();
@@ -1845,52 +1919,52 @@ client.on('message_create', async message => {
             // Check if sender is the owner
             const senderId = message.author || message.from;
             if (senderId !== '917428233446@c.us') {
-                // Not owner, continue to other handlers
-            } else {
-                // Check if the search results are still valid (within 10 minutes)
-                const searchAge = Date.now() - ownerLastMasterSearch.timestamp;
-                if (searchAge > 10 * 60 * 1000) { // 10 minutes
-                    ownerLastMasterSearch = null;
-                    await message.reply('🔍 Previous master search results have expired. Please search again with ?mastersearch.');
+                // Not owner, silently ignore to prevent access to master search results
+                return;
+            }
+            
+            // Check if the search results are still valid (within 10 minutes)
+            const searchAge = Date.now() - ownerLastMasterSearch.timestamp;
+            if (searchAge > 10 * 60 * 1000) { // 10 minutes
+                ownerLastMasterSearch = null;
+                await message.reply('🔍 Previous master search results have expired. Please search again with ?mastersearch.');
+                return;
+            }
+            
+            const selectedNumber = parseInt(message.body);
+            const maxDisplayed = Math.min(ownerLastMasterSearch.results.length, 10);
+            
+            if (selectedNumber < 1 || selectedNumber > maxDisplayed) {
+                await message.reply(`🔍 Please select a number between 1 and ${maxDisplayed}.`);
+                return;
+            }
+            
+            try {
+                const selectedDoc = ownerLastMasterSearch.results[selectedNumber - 1];
+                
+                // Check file size (WhatsApp limit)
+                const maxSize = 50 * 1024 * 1024; // 50MB
+                if (selectedDoc.size > maxSize) {
+                    await message.reply(`🔍 "${selectedDoc.filename}" from group "${selectedDoc.groupDisplayName}" is too large to send (${Math.round(selectedDoc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
                     return;
                 }
                 
-                const selectedNumber = parseInt(message.body);
-                const maxDisplayed = Math.min(ownerLastMasterSearch.results.length, 10);
+                console.log(`📤 Sending selected document from master search: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName} (${Math.round(selectedDoc.size / 1024)}KB)`);
                 
-                if (selectedNumber < 1 || selectedNumber > maxDisplayed) {
-                    await message.reply(`🔍 Please select a number between 1 and ${maxDisplayed}.`);
-                    return;
-                }
+                // Send the document
+                const media = MessageMedia.fromFilePath(selectedDoc.path);
+                await chat.sendMessage(media, {
+                    caption: `🔍 ${selectedDoc.filename}\n📁 From: ${selectedDoc.groupDisplayName}\n🔢 Selection ${selectedNumber} from "${ownerLastMasterSearch.query}"`
+                });
                 
-                try {
-                    const selectedDoc = ownerLastMasterSearch.results[selectedNumber - 1];
-                    
-                    // Check file size (WhatsApp limit)
-                    const maxSize = 50 * 1024 * 1024; // 50MB
-                    if (selectedDoc.size > maxSize) {
-                        await message.reply(`🔍 "${selectedDoc.filename}" from group "${selectedDoc.groupDisplayName}" is too large to send (${Math.round(selectedDoc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
-                        return;
-                    }
-                    
-                    console.log(`📤 Sending selected document from master search: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName} (${Math.round(selectedDoc.size / 1024)}KB)`);
-                    
-                    // Send the document
-                    const media = MessageMedia.fromFilePath(selectedDoc.path);
-                    await chat.sendMessage(media, {
-                        caption: `🔍 ${selectedDoc.filename}\n📁 From: ${selectedDoc.groupDisplayName}\n🔢 Selection ${selectedNumber} from "${ownerLastMasterSearch.query}"`
-                    });
-                    
-                    console.log(`✅ Selected master search document sent: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName}`);
-                    
-                    // Clear the search results after successful selection
-                    ownerLastMasterSearch = null;
-                    
-                } catch (error) {
-                    console.error('❌ Error sending selected master search document:', error);
-                    await message.reply('Sorry, there was an error sending the selected document. Please try again.');
-                }
-                return; // Important: return here to prevent falling through to other handlers
+                console.log(`✅ Selected master search document sent: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName}`);
+                
+                // Clear the search results after successful selection
+                ownerLastMasterSearch = null;
+                
+            } catch (error) {
+                console.error('❌ Error sending selected master search document:', error);
+                await message.reply('Sorry, there was an error sending the selected document. Please try again.');
             }
         }
         
