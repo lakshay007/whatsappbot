@@ -2218,7 +2218,8 @@ client.on('message_create', async message => {
         }
         
         // CHECK FOR REPLIES TO BOT OR MENTIONS (including media analysis when mentioned)
-        else {
+        // This should run REGARDLESS of memory storage
+        {
             const replyCheck = await isReplyToBot(message);
             // Skip mention check for bot's own messages to prevent infinite loops
             const mentionCheck = message.fromMe ? false : await isMentioned(message);
