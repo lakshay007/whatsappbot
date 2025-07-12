@@ -1,6 +1,8 @@
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const ILovePDFApi = require('@ilovepdf/ilovepdf-nodejs');
+const ILovePDFFile = require('@ilovepdf/ilovepdf-nodejs/ILovePDFFile');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
@@ -9,6 +11,9 @@ require('dotenv').config();
 const genAI1 = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const genAI2 = process.env.GEMINI_API_KEY2 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY2) : null;
 const genAI3 = process.env.GEMINI_API_KEY3 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY3) : null;
+
+// Initialize iLovePDF API
+const ilovepdf = new ILovePDFApi(process.env.ILOVEPDF_PUBLIC_KEY, process.env.ILOVEPDF_SECRET_KEY);
 
 // Model and API key rotation setup (only 2.0-flash and 2.0-flash-lite)
 const MODEL_ROTATION = [
@@ -261,6 +266,165 @@ function masterSearchDocuments(query) {
         console.error('❌ Error in master search:', error);
         return [];
     }
+}
+
+// File conversion functions using iLovePDF API
+const CONVERSION_MAPPING = {
+    // To PDF conversions
+    'pdf': {
+        'doc': 'officetopdf',
+        'docx': 'officetopdf',
+        'xls': 'officetopdf',
+        'xlsx': 'officetopdf',
+        'ppt': 'officetopdf',
+        'pptx': 'officetopdf',
+        'jpg': 'imagetopdf',
+        'jpeg': 'imagetopdf',
+        'png': 'imagetopdf',
+        'gif': 'imagetopdf',
+        'bmp': 'imagetopdf',
+        'tiff': 'imagetopdf',
+        'tif': 'imagetopdf'
+    },
+    // From PDF conversions
+    'docx': {
+        'pdf': 'pdftoword'
+    },
+    'doc': {
+        'pdf': 'pdftoword'
+    },
+    'xlsx': {
+        'pdf': 'pdftoexcel'
+    },
+    'pptx': {
+        'pdf': 'pdftopowerpoint'
+    },
+    'jpg': {
+        'pdf': 'pdftojpg'
+    },
+    'jpeg': {
+        'pdf': 'pdftojpg'
+    },
+    'png': {
+        'pdf': 'pdftojpg'
+    }
+};
+
+function getSupportedConversions(fromExt) {
+    const conversions = [];
+    
+    // Check what this file type can be converted TO
+    for (const [toFormat, fromFormats] of Object.entries(CONVERSION_MAPPING)) {
+        if (fromFormats[fromExt]) {
+            conversions.push(toFormat);
+        }
+    }
+    
+    return conversions;
+}
+
+function getConversionEndpoint(fromExt, toExt) {
+    const toFormatMap = CONVERSION_MAPPING[toExt];
+    if (!toFormatMap) return null;
+    
+    return toFormatMap[fromExt] || null;
+}
+
+async function convertFileUsingILovePDF(filePath, fromExt, toExt, originalFilename) {
+    try {
+        console.log(`🔄 Starting conversion: ${fromExt} → ${toExt}`);
+        
+        const endpoint = getConversionEndpoint(fromExt, toExt);
+        if (!endpoint) {
+            throw new Error(`Conversion from ${fromExt} to ${toExt} is not supported`);
+        }
+        
+        console.log(`📡 Using iLovePDF endpoint: ${endpoint}`);
+        
+        // Create a new task
+        const task = ilovepdf.newTask(endpoint);
+        
+        // Start the task
+        await task.start();
+        console.log(`✅ Task started with ID: ${task.taskId}`);
+        
+        // Create and add file
+        const file = new ILovePDFFile(filePath);
+        await task.addFile(file);
+        console.log(`📁 File added to task: ${originalFilename}`);
+        
+        // Set processing options based on conversion type
+        const processingOptions = {};
+        
+        if (endpoint === 'pdftojpg') {
+            processingOptions.pdftojpg_mode = 'pages'; // Convert all pages
+        } else if (endpoint === 'pdftoword') {
+            processingOptions.word_version = 'docx'; // Always use modern format
+        }
+        
+        // Process the file
+        await task.process(processingOptions);
+        console.log(`⚙️ Processing completed`);
+        
+        // Download the result
+        const downloadedFile = await task.download();
+        console.log(`📥 Download completed`);
+        
+        return downloadedFile;
+        
+    } catch (error) {
+        console.error('❌ iLovePDF conversion error:', error);
+        throw error;
+    }
+}
+
+function getOutputFilename(originalFilename, toExt) {
+    const baseName = path.basename(originalFilename, path.extname(originalFilename));
+    return `${baseName}_converted.${toExt}`;
+}
+
+function isConversionSupported(fileMimetype) {
+    const supportedTypes = [
+        // Office documents
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+        'application/msword', // doc
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+        'application/vnd.ms-excel', // xls
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+        'application/vnd.ms-powerpoint', // ppt
+        // Images
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/bmp',
+        'image/tiff',
+        'image/tif'
+    ];
+    
+    return supportedTypes.includes(fileMimetype);
+}
+
+function getFileExtensionFromMimetype(mimetype) {
+    const mimeMap = {
+        'application/pdf': 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/msword': 'doc',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+        'application/vnd.ms-excel': 'xls',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+        'application/vnd.ms-powerpoint': 'ppt',
+        'image/jpeg': 'jpg',
+        'image/jpg': 'jpg',
+        'image/png': 'png',
+        'image/gif': 'gif',
+        'image/bmp': 'bmp',
+        'image/tiff': 'tiff',
+        'image/tif': 'tif'
+    };
+    
+    return mimeMap[mimetype] || null;
 }
 
 // Create client with optimized settings
@@ -1763,6 +1927,153 @@ client.on('message_create', async message => {
             }
         }
         
+        // CONVERT COMMAND
+        else if (message.body.startsWith('?convert ')) {
+            const chat = await message.getChat();
+            const convertFormat = message.body.substring(9).trim().toLowerCase(); // Remove "?convert "
+            
+            if (!convertFormat) {
+                return message.reply('Usage: ?convert <format>\nExample: ?convert pdf or ?convert docx\n\nReply to any file with this command to convert it to the specified format.');
+            }
+            
+            // Check if this is a reply to a message with media
+            if (!message.hasQuotedMsg) {
+                return message.reply('⚠️ Please reply to a file with ?convert <format>\nExample: Reply to a Word document with "?convert pdf"');
+            }
+            
+            try {
+                const quotedMsg = await message.getQuotedMessage();
+                
+                if (!quotedMsg.hasMedia) {
+                    return message.reply('⚠️ The message you replied to doesn\'t contain a file. Please reply to a file with ?convert <format>');
+                }
+                
+                console.log(`🔄 Conversion request: ${quotedMsg.type} → ${convertFormat}`);
+                
+                // Download the media
+                const media = await quotedMsg.downloadMedia();
+                
+                if (!media || !media.mimetype) {
+                    return message.reply('❌ Could not download the file. Please try again.');
+                }
+                
+                // Check if the file type is supported for conversion
+                if (!isConversionSupported(media.mimetype)) {
+                    return message.reply(`❌ File type ${media.mimetype} is not supported for conversion.\n\nSupported formats: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), Images (jpg/png/gif/bmp/tiff)`);
+                }
+                
+                // Get file extension from mimetype
+                const fromExt = getFileExtensionFromMimetype(media.mimetype);
+                if (!fromExt) {
+                    return message.reply('❌ Could not determine file format. Please try with a different file.');
+                }
+                
+                // Check if the conversion is supported
+                const supportedConversions = getSupportedConversions(fromExt);
+                if (!supportedConversions.includes(convertFormat)) {
+                    const supportedList = supportedConversions.join(', ');
+                    return message.reply(`❌ Cannot convert ${fromExt.toUpperCase()} to ${convertFormat.toUpperCase()}.\n\nSupported conversions for ${fromExt.toUpperCase()}: ${supportedList}`);
+                }
+                
+                // Check if trying to convert to same format
+                if (fromExt === convertFormat) {
+                    return message.reply(`💡 File is already in ${convertFormat.toUpperCase()} format. No conversion needed!`);
+                }
+                
+                // Check file size (iLovePDF has limits)
+                const fileSize = media.data.length * 0.75; // Approximate size from base64
+                const maxSize = 100 * 1024 * 1024; // 100MB limit
+                
+                if (fileSize > maxSize) {
+                    const sizeMB = Math.round(fileSize / 1024 / 1024);
+                    return message.reply(`❌ File too large: ${sizeMB}MB. Maximum file size for conversion is 100MB.`);
+                }
+                
+                // Send "processing" message
+                await chat.sendStateTyping();
+                const processingMsg = await message.reply(`🔄 Converting ${fromExt.toUpperCase()} to ${convertFormat.toUpperCase()}...\n\nThis may take a few moments depending on file size.`);
+                
+                // Create temporary file for conversion
+                const tempDir = path.join(__dirname, 'temp');
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir);
+                }
+                
+                const originalFilename = media.filename || `file.${fromExt}`;
+                const tempFilePath = path.join(tempDir, `temp_${Date.now()}_${originalFilename}`);
+                
+                // Save file to disk
+                fs.writeFileSync(tempFilePath, media.data, 'base64');
+                console.log(`💾 Temporary file saved: ${tempFilePath}`);
+                
+                try {
+                    // Convert using iLovePDF
+                    const convertedFile = await convertFileUsingILovePDF(tempFilePath, fromExt, convertFormat, originalFilename);
+                    
+                    // Create output filename
+                    const outputFilename = getOutputFilename(originalFilename, convertFormat);
+                    
+                    // Send the converted file
+                    const convertedMedia = new MessageMedia(
+                        `application/${convertFormat}`, 
+                        convertedFile.toString('base64'), 
+                        outputFilename
+                    );
+                    
+                    await chat.sendMessage(convertedMedia, {
+                        caption: `✅ Converted: ${fromExt.toUpperCase()} → ${convertFormat.toUpperCase()}\n📄 ${outputFilename}`
+                    });
+                    
+                    console.log(`✅ File converted and sent: ${fromExt} → ${convertFormat}`);
+                    
+                    // Delete the processing message
+                    try {
+                        await processingMsg.delete(true);
+                    } catch (deleteError) {
+                        console.log('ℹ️ Could not delete processing message');
+                    }
+                    
+                } catch (conversionError) {
+                    console.error('❌ Conversion failed:', conversionError);
+                    
+                    let errorMessage = '❌ Conversion failed. ';
+                    
+                    if (conversionError.message.includes('not supported')) {
+                        errorMessage += 'This conversion type is not supported.';
+                    } else if (conversionError.message.includes('quota') || conversionError.message.includes('limit')) {
+                        errorMessage += 'API quota exceeded. Please try again later.';
+                    } else if (conversionError.message.includes('network') || conversionError.message.includes('timeout')) {
+                        errorMessage += 'Network error. Please check your connection and try again.';
+                    } else {
+                        errorMessage += 'Please try again or contact support.';
+                    }
+                    
+                    await message.reply(errorMessage);
+                    
+                    // Delete the processing message
+                    try {
+                        await processingMsg.delete(true);
+                    } catch (deleteError) {
+                        console.log('ℹ️ Could not delete processing message');
+                    }
+                }
+                
+                // Clean up temporary file
+                try {
+                    if (fs.existsSync(tempFilePath)) {
+                        fs.unlinkSync(tempFilePath);
+                        console.log(`🧹 Cleaned up temporary file: ${tempFilePath}`);
+                    }
+                } catch (cleanupError) {
+                    console.error('❌ Error cleaning up temporary file:', cleanupError);
+                }
+                
+            } catch (error) {
+                console.error('❌ Error in convert command:', error);
+                await message.reply('❌ An error occurred while processing the conversion. Please try again.');
+            }
+        }
+        
         // MASTER SEARCH COMMAND (Owner only - hidden from help)
         else if (message.body.startsWith('?mastersearch ')) {
             const chat = await message.getChat();
@@ -1986,6 +2297,14 @@ client.on('message_create', async message => {
                 `   Example: ?poll -m fav food, pizza, burger, sushi\n` +
                 `   • Creates native WhatsApp poll with tap-to-vote\n` +
                 `   • Up to 12 options allowed\n\n` +
+                `🔄 FILE CONVERSION:\n` +
+                `   ?convert <format> - Convert files to different formats\n` +
+                `   Example: Reply to a Word document with "?convert pdf"\n` +
+                `   Example: Reply to a PDF with "?convert docx"\n` +
+                `   • Supported formats: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), Images (jpg/png/gif/bmp/tiff)\n` +
+                `   • Common conversions: Word↔PDF, Excel→PDF, PowerPoint→PDF, Images→PDF, PDF→Images\n` +
+                `   • Maximum file size: 100MB\n` +
+                `   • Powered by iLovePDF API\n\n` +
                 `🎨 MULTIMODAL AI:\n` +
                 `   Reply to any image or PDF while mentioning chotu to analyze it!\n` +
                 `   • Ask questions: "chotu what's in this image?", "@chotu explain this meme"\n` +
