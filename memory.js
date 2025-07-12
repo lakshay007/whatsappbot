@@ -179,20 +179,26 @@ class MemoryManager {
     // Memory Search (Vector Similarity Search)
     async searchMemories(chatId, query, personName = null) {
         try {
+            // Build full search query including person name if specified
+            let fullQuery = query || '';
+            if (personName && personName.trim()) {
+                fullQuery = `${personName} ${fullQuery}`.trim();
+            }
+            
             // Generate embedding for the search query
-            const queryEmbedding = await this.generateEmbedding(query);
+            const queryEmbedding = await this.generateEmbedding(fullQuery);
             
             if (!queryEmbedding) {
                 // Fall back to text search if embedding fails
-                return await this.searchMemoriesText(chatId, query, personName);
+                return await this.searchMemoriesText(chatId, fullQuery, null);
             }
             
-            // Use vector similarity search
-            return await this.searchMemoriesWithEmbedding(chatId, queryEmbedding, personName);
+            // Use vector similarity search (don't filter by sender)
+            return await this.searchMemoriesWithEmbedding(chatId, queryEmbedding, null);
             
         } catch (error) {
             console.error('❌ Error in vector search, falling back to text search:', error);
-            return await this.searchMemoriesText(chatId, query, personName);
+            return await this.searchMemoriesText(chatId, fullQuery, null);
         }
     }
 
@@ -208,19 +214,13 @@ class MemoryManager {
             
             let params = [chatId];
             
-            // Add person filter if specified
-            if (personName && personName.trim()) {
-                sql += ` AND sender_name LIKE ?`;
-                params.push(`%${personName.trim()}%`);
-            }
-            
-            // Add query filter if specified
+            // Search in message content for all keywords (including person name)
             if (query && query.trim()) {
                 const keywords = query.trim().split(' ').filter(word => word.length > 2);
                 if (keywords.length > 0) {
                     sql += ` AND (`;
                     keywords.forEach((keyword, index) => {
-                        if (index > 0) sql += ` OR `;
+                        if (index > 0) sql += ` AND `;
                         sql += `message LIKE ?`;
                         params.push(`%${keyword}%`);
                     });
@@ -235,7 +235,7 @@ class MemoryManager {
                     console.error('❌ Error searching memories:', err);
                     reject(err);
                 } else {
-                    console.log(`🔍 Found ${rows.length} memories (text search) for query: "${query}" by "${personName}"`);
+                    console.log(`🔍 Found ${rows.length} memories (text search) for query: "${query}"`);
                     resolve(rows);
                 }
             });
@@ -254,11 +254,7 @@ class MemoryManager {
             
             let params = [chatId];
             
-            if (personName && personName.trim()) {
-                sql += ` AND sender_name LIKE ?`;
-                params.push(`%${personName.trim()}%`);
-            }
-            
+            // No longer filtering by sender_name - search all messages
             sql += ` ORDER BY timestamp DESC LIMIT 100`;
             
             this.db.all(sql, params, (err, rows) => {
@@ -291,7 +287,7 @@ class MemoryManager {
                         // Filter by minimum similarity threshold (0.5 = decent match)
                         const goodMatches = results.filter(r => r.similarity > 0.5);
                         
-                        console.log(`🔍 Found ${goodMatches.length} vector matches for query: "${queryEmbedding.length} dims" by "${personName}"`);
+                        console.log(`🔍 Found ${goodMatches.length} vector matches with similarity > 0.5`);
                         console.log(`📊 Top similarity: ${goodMatches[0]?.similarity.toFixed(3) || 'none'}`);
                         
                         resolve(goodMatches.slice(0, 10));
