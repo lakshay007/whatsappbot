@@ -3,7 +3,6 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
-const memoryManager = require('./memory');
 require('dotenv').config();
 
 // Initialize Gemini AI with model switching using multiple API keys
@@ -630,14 +629,6 @@ Now analyze the ${mediaType.startsWith('image/') ? 'image' : 'document'} and res
 // Function to get AI response from Gemini
 async function executeNaturalCommand(message, aiResponse, chat, senderName) {
     try {
-        // Handle MEMORY_SEARCH differently since it has a different format
-        if (aiResponse.includes('MEMORY_SEARCH:')) {
-            const params = aiResponse.substring(aiResponse.indexOf('MEMORY_SEARCH:') + 'MEMORY_SEARCH:'.length);
-            await executeMemorySearch(message, params, chat);
-            return;
-        }
-        
-        // Handle regular EXECUTE commands
         const [_, command, params] = aiResponse.split(':');
         
         switch(command) {
@@ -883,61 +874,6 @@ async function executeAvatarCommand(message, username) {
     }
 }
 
-async function executeMemorySearch(message, params, chat) {
-    try {
-        const [person, topic] = params.split('|');
-        
-        console.log(`🧠 Memory search - Person: "${person}", Topic: "${topic}"`);
-        
-        // Check if memories are enabled for this chat
-        const isEnabled = await memoryManager.isMemoryEnabled(chat.id._serialized);
-        
-        if (!isEnabled) {
-            await message.reply("🧠 Memories are not enabled for this group. An admin can enable them with ?enablememories");
-            return;
-        }
-        
-        // Search memories
-        const results = await memoryManager.searchMemories(
-            chat.id._serialized,
-            topic || '',
-            person || ''
-        );
-        
-        if (results.length === 0) {
-            await message.reply(`🧠 No memories found about "${topic}"${person ? ` by ${person}` : ''}`);
-            return;
-        }
-        
-        // Format results
-        let responseText = `🧠 Found ${results.length} memories:\n\n`;
-        
-        results.forEach((result, index) => {
-            const date = new Date(result.timestamp).toLocaleDateString();
-            const preview = result.message.length > 100 ? 
-                result.message.substring(0, 100) + '...' : 
-                result.message;
-            
-            // Show similarity score if available (vector search)
-            const similarityInfo = result.similarity ? 
-                ` (${(result.similarity * 100).toFixed(0)}% match)` : '';
-            
-            responseText += `${index + 1}. ${result.sender_name} (${date})${similarityInfo}:\n"${preview}"\n\n`;
-        });
-        
-        // Keep response under WhatsApp message limits
-        if (responseText.length > 4000) {
-            responseText = responseText.substring(0, 4000) + '...\n\n(More results available)';
-        }
-        
-        await message.reply(responseText);
-        
-    } catch (error) {
-        console.error('❌ Error in memory search:', error);
-        await message.reply("🧠 Had trouble searching memories. Try asking differently!");
-    }
-}
-
 async function getAIResponse(userMessage, senderName, context = null, contextType = 'reply', mediaData = null) {
     // Update heartbeat on AI activity
     lastHeartbeat = Date.now();
@@ -1008,22 +944,7 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 - "multi/multiple choice poll" → EXECUTE:POLL:-m question|option1|option2
 - "welcome someone" → EXECUTE:WELCOME:username
 - "show avatar/profile pic of someone" → EXECUTE:AVATAR:username (need @mention)
-
-MEMORY SEARCH:
-If user is asking about past conversations, respond with MEMORY format:
-- "what did [person] say about [topic]" → MEMORY_SEARCH:person|topic
-- "do you remember [topic]" → MEMORY_SEARCH:|topic
-- "when is [person]'s [thing]" → MEMORY_SEARCH:person|thing
-- "[person]'s [something]" → MEMORY_SEARCH:person|something
-- "tell me about [past topic]" → MEMORY_SEARCH:|past topic
-
-Examples:
-- "what did aneesh say about his gpa" → MEMORY_SEARCH:aneesh|gpa
-- "harsh's room number" → MEMORY_SEARCH:harsh|room number
-- "when is aditya's assignment due" → MEMORY_SEARCH:aditya|assignment due
-- "do you remember the project deadline" → MEMORY_SEARCH:|project deadline
-
-Otherwise respond naturally with your personality
+- Otherwise respond naturally with your personality
 
 Now respond to: ${userMessage}`;
 
@@ -2047,87 +1968,6 @@ client.on('message_create', async message => {
             }
         }
         
-        // MEMORY COMMANDS
-        else if (message.body === '?enablememories') {
-            const chat = await message.getChat();
-            
-            if (!chat.isGroup) {
-                await message.reply('🧠 Memories can only be enabled in groups.');
-                return;
-            }
-            
-            // Check if user is admin
-            const participant = chat.participants.find(p => p.id._serialized === message.author);
-            if (!participant || !participant.isAdmin) {
-                await message.reply('🧠 Only group admins can enable memories.');
-                return;
-            }
-            
-            try {
-                const contact = await message.getContact();
-                const enabledBy = contact.pushname || contact.name || 'Admin';
-                
-                await memoryManager.enableMemories(chat.id._serialized, enabledBy);
-                await message.reply('✅ Memories enabled! I will now remember our conversations for future searches.');
-                
-            } catch (error) {
-                console.error('❌ Error enabling memories:', error);
-                await message.reply('❌ Failed to enable memories. Please try again.');
-            }
-        }
-        
-        else if (message.body === '?disablememories') {
-            const chat = await message.getChat();
-            
-            if (!chat.isGroup) {
-                await message.reply('🧠 This command is only for groups.');
-                return;
-            }
-            
-            // Check if user is admin
-            const participant = chat.participants.find(p => p.id._serialized === message.author);
-            if (!participant || !participant.isAdmin) {
-                await message.reply('🧠 Only group admins can disable memories.');
-                return;
-            }
-            
-            try {
-                await memoryManager.disableMemories(chat.id._serialized);
-                await message.reply('❌ Memories disabled. I will stop storing new conversations.');
-                
-            } catch (error) {
-                console.error('❌ Error disabling memories:', error);
-                await message.reply('❌ Failed to disable memories. Please try again.');
-            }
-        }
-        
-        else if (message.body === '?memorystats') {
-            const chat = await message.getChat();
-            
-            try {
-                const isEnabled = await memoryManager.isMemoryEnabled(chat.id._serialized);
-                
-                if (!isEnabled) {
-                    await message.reply('🧠 Memories are not enabled for this group.');
-                    return;
-                }
-                
-                const stats = await memoryManager.getMemoryStats(chat.id._serialized);
-                
-                const statsText = `🧠 Memory Statistics:\n\n` +
-                    `📊 Total messages: ${stats.total_messages}\n` +
-                    `👥 Unique senders: ${stats.unique_senders}\n` +
-                    `📅 First message: ${stats.first_message ? new Date(stats.first_message).toLocaleDateString() : 'N/A'}\n` +
-                    `🕐 Last message: ${stats.last_message ? new Date(stats.last_message).toLocaleDateString() : 'N/A'}`;
-                
-                await message.reply(statsText);
-                
-            } catch (error) {
-                console.error('❌ Error getting memory stats:', error);
-                await message.reply('❌ Failed to get memory statistics.');
-            }
-        }
-        
         // HELP COMMAND
         else if (message.body === '?help') {
             const helpMessage = `Chotu helper commands\n\n` +
@@ -2161,16 +2001,7 @@ client.on('message_create', async message => {
                 `   • Automatically stores documents and images (no videos/audio/gifs)\n` +
                 `   • Searches with fuzzy matching (handles typos)\n` +
                 `   • Each group has its own document storage\n` +
-                `   • Use numbers from ?list for quick access\n\n` +
-                `🧠 MEMORIES (Group Admin Only):\n` +
-                `   ?enablememories - Enable conversation memory storage\n` +
-                `   ?disablememories - Disable conversation memory storage\n` +
-                `   ?memorystats - View memory statistics\n` +
-                `   • Once enabled, I remember conversations with semantic search\n` +
-                `   • Ask me: "chotu what did john say about the project"\n` +
-                `   • Ask me: "chotu do you remember the deadline"\n` +
-                `   • Ask me: "chotu when is sarah's presentation"\n` +
-                `   • Understands meaning: "grades" finds "GPA", "room" finds "dorm"\n`;
+                `   • Use numbers from ?list for quick access\n`;
             
             await message.reply(helpMessage);
         }
@@ -2189,42 +2020,8 @@ client.on('message_create', async message => {
             await message.reply(status);
         }
         
-        // STORE MEMORY IF ENABLED (for all user messages, not bot messages)
-        if (!message.fromMe && message.body && message.body.trim()) {
-            try {
-                const chat = await message.getChat();
-                const isEnabled = await memoryManager.isMemoryEnabled(chat.id._serialized);
-                
-                if (isEnabled) {
-                    const contact = await message.getContact();
-                    const senderName = contact.pushname || contact.name || contact.number || 'Unknown';
-                    
-                    // Skip storing:
-                    // - Bot commands (?help, !status, etc.)
-                    // - Messages mentioning "chotu" (queries to bot)
-                    // - Messages with @mentions of the bot
-                    const messageText = message.body.toLowerCase();
-                    const shouldSkip = messageText.startsWith('?') || 
-                                     messageText.startsWith('!') ||
-                                     messageText.includes('chotu') ||
-                                     messageText.includes('@chotu');
-                    
-                    if (!shouldSkip) {
-                        await memoryManager.storeMessage(
-                            chat.id._serialized,
-                            senderName,
-                            message.body
-                        );
-                    }
-                }
-            } catch (error) {
-                console.error('❌ Error storing memory:', error);
-            }
-        }
-        
         // CHECK FOR REPLIES TO BOT OR MENTIONS (including media analysis when mentioned)
-        // This should run REGARDLESS of memory storage
-        {
+        else {
             const replyCheck = await isReplyToBot(message);
             // Skip mention check for bot's own messages to prevent infinite loops
             const mentionCheck = message.fromMe ? false : await isMentioned(message);
@@ -2321,20 +2118,13 @@ client.on('message_create', async message => {
                     }
                 }
                 
-                // Check if AI wants to execute a command OR search memory
+                // Check if AI wants to execute a command
                 const executeMatch = aiResponse.match(/EXECUTE:([A-Z]+):(.+)/);
-                const memoryMatch = aiResponse.match(/MEMORY_SEARCH:([^|\n]*)\|?([^\n]*)/);
-                
                 if (executeMatch) {
                     const [fullMatch, command, params] = executeMatch;
                     const executeCommand = `EXECUTE:${command}:${params}`;
-                    console.log(`🎯 Detected execute command: ${executeCommand}`);
+                    console.log(`🎯 Detected natural command: ${executeCommand}`);
                     await executeNaturalCommand(message, executeCommand, chat, senderName);
-                } else if (memoryMatch) {
-                    const [fullMatch, person, topic] = memoryMatch;
-                    const memoryCommand = `MEMORY_SEARCH:${person}|${topic}`;
-                    console.log(`🎯 Detected memory search: ${memoryCommand}`);
-                    await executeNaturalCommand(message, memoryCommand, chat, senderName);
                 } else {
                     await message.reply(aiResponse);
                 }
