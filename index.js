@@ -630,6 +630,14 @@ Now analyze the ${mediaType.startsWith('image/') ? 'image' : 'document'} and res
 // Function to get AI response from Gemini
 async function executeNaturalCommand(message, aiResponse, chat, senderName) {
     try {
+        // Handle MEMORY_SEARCH differently since it has a different format
+        if (aiResponse.includes('MEMORY_SEARCH:')) {
+            const params = aiResponse.substring(aiResponse.indexOf('MEMORY_SEARCH:') + 'MEMORY_SEARCH:'.length);
+            await executeMemorySearch(message, params, chat);
+            return;
+        }
+        
+        // Handle regular EXECUTE commands
         const [_, command, params] = aiResponse.split(':');
         
         switch(command) {
@@ -647,9 +655,6 @@ async function executeNaturalCommand(message, aiResponse, chat, senderName) {
                 break;
             case 'AVATAR':
                 await executeAvatarCommand(message, params);
-                break;
-            case 'MEMORY_SEARCH':
-                await executeMemorySearch(message, params, chat);
                 break;
             default:
                 await message.reply("I understood you want to do something but I'm not sure what. Try using the direct commands!");
@@ -2317,12 +2322,19 @@ client.on('message_create', async message => {
                 }
                 
                 // Check if AI wants to execute a command OR search memory
-                const executeMatch = aiResponse.match(/(?:EXECUTE|MEMORY_SEARCH):([A-Z_]+):(.+)/);
+                const executeMatch = aiResponse.match(/EXECUTE:([A-Z]+):(.+)/);
+                const memoryMatch = aiResponse.match(/MEMORY_SEARCH:([^|\n]*)\|?([^\n]*)/);
+                
                 if (executeMatch) {
                     const [fullMatch, command, params] = executeMatch;
                     const executeCommand = `EXECUTE:${command}:${params}`;
-                    console.log(`🎯 Detected natural command: ${executeCommand}`);
+                    console.log(`🎯 Detected execute command: ${executeCommand}`);
                     await executeNaturalCommand(message, executeCommand, chat, senderName);
+                } else if (memoryMatch) {
+                    const [fullMatch, person, topic] = memoryMatch;
+                    const memoryCommand = `MEMORY_SEARCH:${person}|${topic}`;
+                    console.log(`🎯 Detected memory search: ${memoryCommand}`);
+                    await executeNaturalCommand(message, memoryCommand, chat, senderName);
                 } else {
                     await message.reply(aiResponse);
                 }
