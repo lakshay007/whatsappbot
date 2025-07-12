@@ -3,6 +3,14 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
+const { 
+    enableMemories, 
+    disableMemories, 
+    isMemoriesEnabled, 
+    storeMessage, 
+    handleMemorySearch,
+    memoryFunctionDeclarations 
+} = require('./memories');
 require('dotenv').config();
 
 // Initialize Gemini AI with model switching using multiple API keys
@@ -521,9 +529,10 @@ async function isReplyToBot(message) {
     }
 }
 
-// Google grounding configuration
+// Google grounding configuration with memory functions
 const groundingTool = {
     googleSearch: {},
+    functionDeclarations: memoryFunctionDeclarations
 };
 
 // Media processing functions for multimodal AI
@@ -970,6 +979,20 @@ Now respond to: ${userMessage}`;
             const result = await model.generateContent(requestConfig);
             const response = await result.response;
             
+            // Check for function calls first
+            const functionCalls = response.functionCalls();
+            if (functionCalls && functionCalls.length > 0) {
+                const functionCall = functionCalls[0];
+                
+                if (functionCall.name === 'search_memories') {
+                    console.log(`🧠 Memory search triggered: ${functionCall.args.query}`);
+                    
+                    // We need the chatId for memory search, but we don't have it in this function
+                    // Return a special response that will be handled in the message handler
+                    return `MEMORY_SEARCH:${JSON.stringify(functionCall.args)}`;
+                }
+            }
+            
             // Check if Google Search was used
             const candidates = response.candidates;
             if (candidates && candidates[0] && candidates[0].groundingMetadata) {
@@ -1039,6 +1062,25 @@ client.on('message_create', async message => {
     try {
         // Update heartbeat on message activity
         lastHeartbeat = Date.now();
+        
+        // MEMORY STORAGE (only from users, not from bot itself, skip commands)
+        if (!message.fromMe && message.body && !message.body.startsWith('?') && message.type === 'chat') {
+            try {
+                const chat = await message.getChat();
+                const memoriesEnabled = await isMemoriesEnabled(chat.id._serialized);
+                
+                if (memoriesEnabled) {
+                    const contact = await message.getContact();
+                    const senderName = contact.pushname || contact.name || 'Unknown';
+                    
+                    // Store the message with embedding
+                    await storeMessage(chat.id._serialized, senderName, message.body);
+                    console.log(`🧠 Stored memory: ${senderName} in ${chat.name || 'Private Chat'}`);
+                }
+            } catch (error) {
+                console.error('❌ Error storing memory:', error);
+            }
+        }
         
         // AUTO-STORE DOCUMENTS (only from users, not from bot itself)
         if (message.hasMedia && !message.fromMe && message.type !== 'sticker'  ) {
@@ -1474,6 +1516,66 @@ client.on('message_create', async message => {
             } catch (error) {
                 console.error('❌ Error listing documents:', error);
                 await message.reply('Sorry, there was an error listing documents. Please try again.');
+            }
+        }
+        
+        // ENABLE MEMORIES COMMAND (Admin only)
+        else if (message.body === '?enablememories') {
+            const chat = await message.getChat();
+            
+            if (!chat.isGroup) {
+                return message.reply('❌ Memories feature is only available in groups.');
+            }
+            
+            try {
+                const contact = await message.getContact();
+                const author = await message.getContact();
+                
+                // Check if sender is group admin
+                const participants = chat.participants;
+                const senderParticipant = participants.find(p => p.id._serialized === author.id._serialized);
+                
+                if (!senderParticipant || !senderParticipant.isAdmin) {
+                    return message.reply('❌ Only group admins can enable memories.');
+                }
+                
+                await enableMemories(chat.id._serialized);
+                await message.reply('✅ Memories enabled for this group! I will now remember conversations for future searches.');
+                console.log(`🧠 Memories enabled for group: ${chat.name}`);
+                
+            } catch (error) {
+                console.error('❌ Error enabling memories:', error);
+                await message.reply('❌ Sorry, there was an error enabling memories. Please try again.');
+            }
+        }
+        
+        // DISABLE MEMORIES COMMAND (Admin only)
+        else if (message.body === '?disablememories') {
+            const chat = await message.getChat();
+            
+            if (!chat.isGroup) {
+                return message.reply('❌ Memories feature is only available in groups.');
+            }
+            
+            try {
+                const contact = await message.getContact();
+                const author = await message.getContact();
+                
+                // Check if sender is group admin
+                const participants = chat.participants;
+                const senderParticipant = participants.find(p => p.id._serialized === author.id._serialized);
+                
+                if (!senderParticipant || !senderParticipant.isAdmin) {
+                    return message.reply('❌ Only group admins can disable memories.');
+                }
+                
+                await disableMemories(chat.id._serialized);
+                await message.reply('❌ Memories disabled for this group. I will stop storing new conversations.');
+                console.log(`🧠 Memories disabled for group: ${chat.name}`);
+                
+            } catch (error) {
+                console.error('❌ Error disabling memories:', error);
+                await message.reply('❌ Sorry, there was an error disabling memories. Please try again.');
             }
         }
         
@@ -2118,9 +2220,25 @@ client.on('message_create', async message => {
                     }
                 }
                 
+                // Check if AI wants to search memories
+                const memoryMatch = aiResponse.match(/MEMORY_SEARCH:(.+)/);
+                if (memoryMatch) {
+                    const memoryArgs = JSON.parse(memoryMatch[1]);
+                    console.log(`🧠 Processing memory search: ${memoryArgs.query}`);
+                    
+                    try {
+                        // Get the current model for memory search
+                        const model = getCurrentModel();
+                        const memoryResponse = await handleMemorySearch(message.body, chat.id._serialized, model);
+                        await message.reply(memoryResponse);
+                    } catch (error) {
+                        console.error('❌ Error processing memory search:', error);
+                        await message.reply('🤔 Sorry, I had trouble searching my memories. Try asking again.');
+                    }
+                } 
                 // Check if AI wants to execute a command
-                const executeMatch = aiResponse.match(/EXECUTE:([A-Z]+):(.+)/);
-                if (executeMatch) {
+                else if (aiResponse.match(/EXECUTE:([A-Z]+):(.+)/)) {
+                    const executeMatch = aiResponse.match(/EXECUTE:([A-Z]+):(.+)/);
                     const [fullMatch, command, params] = executeMatch;
                     const executeCommand = `EXECUTE:${command}:${params}`;
                     console.log(`🎯 Detected natural command: ${executeCommand}`);
