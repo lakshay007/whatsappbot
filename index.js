@@ -188,7 +188,6 @@ class ComPDFKitAPI {
                 params: { taskId }
             });
 
-            console.log(`🔍 Raw getTaskInfo response:`, JSON.stringify(response.data, null, 2));
             return response.data.data;
         } catch (error) {
             console.error('❌ Get task info failed:', error.response?.data || error.message);
@@ -326,12 +325,23 @@ async function convertDocument(sourceFilePath, targetFormat, originalFilename) {
             
             if (taskInfo.taskStatus === 'TaskFinish') {
                 console.log(`✅ Conversion completed successfully`);
-                console.log(`🔍 Task info response:`, JSON.stringify(taskInfo, null, 2));
                 
-                // Check if fileInfos exists and has files
-                if (!taskInfo.fileInfos || !Array.isArray(taskInfo.fileInfos) || taskInfo.fileInfos.length === 0) {
+                // Check if fileInfoDTOList exists and has files
+                if (!taskInfo.fileInfoDTOList || !Array.isArray(taskInfo.fileInfoDTOList) || taskInfo.fileInfoDTOList.length === 0) {
                     console.error(`❌ No file info found in task response`);
                     throw new Error('No result files found in task response');
+                }
+                
+                const fileInfo = taskInfo.fileInfoDTOList[0];
+                
+                // Check if conversion was successful
+                if (fileInfo.status !== 'success') {
+                    throw new Error(`File conversion failed: ${fileInfo.failureReason || 'Unknown error'}`);
+                }
+                
+                // Check if downloadUrl is available
+                if (!fileInfo.downloadUrl) {
+                    throw new Error('No download URL found in conversion result');
                 }
                 
                 // Download result
@@ -343,10 +353,21 @@ async function convertDocument(sourceFilePath, targetFormat, originalFilename) {
                     fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
                 }
                 
-                const fileKey = taskInfo.fileInfos[0].fileKey;
-                console.log(`📥 Downloading file with key: ${fileKey}`);
+                console.log(`📥 Downloading from direct URL: ${fileInfo.downloadUrl}`);
                 
-                await compdfkitAPI.downloadFile(fileKey, outputPath);
+                // Download directly from the provided URL
+                const response = await axios.get(fileInfo.downloadUrl, {
+                    responseType: 'stream'
+                });
+
+                const writer = fs.createWriteStream(outputPath);
+                response.data.pipe(writer);
+
+                await new Promise((resolve, reject) => {
+                    writer.on('finish', resolve);
+                    writer.on('error', reject);
+                });
+                
                 console.log(`📥 Downloaded result: ${outputPath}`);
                 
                 return {
