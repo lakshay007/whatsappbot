@@ -12,70 +12,70 @@ const COMPDFKIT_API_BASE = 'https://api-server.compdf.com';
 const COMPDFKIT_PUBLIC_KEY = process.env.COMPDFKIT_PUBLIC_KEY;
 const COMPDFKIT_SECRET_KEY = process.env.COMPDFKIT_SECRET_KEY;
 
-// ComPDFKit conversion type mappings
+// ComPDFKit conversion type mappings - format: source/target
 const CONVERSION_TYPES = {
     // Office to PDF
     'pdf': {
-        'docx': 'word-to-pdf',
-        'doc': 'word-to-pdf',
-        'xlsx': 'excel-to-pdf',
-        'xls': 'excel-to-pdf',
-        'pptx': 'ppt-to-pdf',
-        'ppt': 'ppt-to-pdf',
-        'rtf': 'rtf-to-pdf',
-        'txt': 'txt-to-pdf',
-        'html': 'html-to-pdf',
-        'htm': 'html-to-pdf',
-        'csv': 'csv-to-pdf',
-        'jpg': 'image-to-pdf',
-        'jpeg': 'image-to-pdf',
-        'png': 'image-to-pdf',
-        'gif': 'image-to-pdf',
-        'bmp': 'image-to-pdf',
-        'tiff': 'image-to-pdf'
+        'docx': 'docx/pdf',
+        'doc': 'doc/pdf',
+        'xlsx': 'xlsx/pdf',
+        'xls': 'xls/pdf',
+        'pptx': 'pptx/pdf',
+        'ppt': 'ppt/pdf',
+        'rtf': 'rtf/pdf',
+        'txt': 'txt/pdf',
+        'html': 'html/pdf',
+        'htm': 'html/pdf',
+        'csv': 'csv/pdf',
+        'jpg': 'jpg/pdf',
+        'jpeg': 'jpg/pdf',
+        'png': 'png/pdf',
+        'gif': 'png/pdf',
+        'bmp': 'png/pdf',
+        'tiff': 'png/pdf'
     },
     // PDF to Office
     'docx': {
-        'pdf': 'pdf-to-word'
+        'pdf': 'pdf/docx'
     },
     'doc': {
-        'pdf': 'pdf-to-word'
+        'pdf': 'pdf/doc'
     },
     'xlsx': {
-        'pdf': 'pdf-to-excel'
+        'pdf': 'pdf/xlsx'
     },
     'xls': {
-        'pdf': 'pdf-to-excel'
+        'pdf': 'pdf/xls'
     },
     'pptx': {
-        'pdf': 'pdf-to-ppt'
+        'pdf': 'pdf/pptx'
     },
     'ppt': {
-        'pdf': 'pdf-to-ppt'
+        'pdf': 'pdf/ppt'
     },
     'rtf': {
-        'pdf': 'pdf-to-rtf'
+        'pdf': 'pdf/rtf'
     },
     'txt': {
-        'pdf': 'pdf-to-txt'
+        'pdf': 'pdf/txt'
     },
     'html': {
-        'pdf': 'pdf-to-html'
+        'pdf': 'pdf/html'
     },
     'htm': {
-        'pdf': 'pdf-to-html'
+        'pdf': 'pdf/html'
     },
     'csv': {
-        'pdf': 'pdf-to-csv'
+        'pdf': 'pdf/csv'
     },
     'jpg': {
-        'pdf': 'pdf-to-image'
+        'pdf': 'pdf/jpg'
     },
     'jpeg': {
-        'pdf': 'pdf-to-image'
+        'pdf': 'pdf/jpg'
     },
     'png': {
-        'pdf': 'pdf-to-image'
+        'pdf': 'pdf/png'
     }
 };
 
@@ -201,11 +201,18 @@ class ComPDFKitAPI {
         }
 
         try {
-            const response = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/file/download`, {
+            // First get file info to get download URL
+            const fileInfoResponse = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/file/fileInfo`, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`
                 },
-                params: { fileKey },
+                params: { fileKey }
+            });
+
+            const downloadUrl = fileInfoResponse.data.data.downloadUrl;
+            
+            // Download from the returned URL
+            const response = await axios.get(downloadUrl, {
                 responseType: 'stream'
             });
 
@@ -218,6 +225,25 @@ class ComPDFKitAPI {
             });
         } catch (error) {
             console.error('❌ Download file failed:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    async getSupportedTools() {
+        if (!await this.ensureAuthenticated()) {
+            throw new Error('Authentication failed');
+        }
+
+        try {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/tool/support`, {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                }
+            });
+
+            return response.data.data;
+        } catch (error) {
+            console.error('❌ Get supported tools failed:', error.response?.data || error.message);
             throw error;
         }
     }
