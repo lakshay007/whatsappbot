@@ -8,7 +8,7 @@ const FormData = require('form-data');
 require('dotenv').config();
 
 // ComPDFKit API Configuration
-const COMPDFKIT_API_BASE = 'https://api.compdf.com';
+const COMPDFKIT_API_BASE = 'https://api-server.compdf.com';
 const COMPDFKIT_PUBLIC_KEY = process.env.COMPDFKIT_PUBLIC_KEY;
 const COMPDFKIT_SECRET_KEY = process.env.COMPDFKIT_SECRET_KEY;
 
@@ -88,15 +88,13 @@ class ComPDFKitAPI {
 
     async authenticate() {
         try {
-            const response = await axios.post(`${COMPDFKIT_API_BASE}/oauth/token`, {
-                grant_type: 'client_credentials',
-                client_id: COMPDFKIT_PUBLIC_KEY,
-                client_secret: COMPDFKIT_SECRET_KEY,
-                scope: 'all'
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/server/v1/oauth/token`, {
+                publicKey: COMPDFKIT_PUBLIC_KEY,
+                secretKey: COMPDFKIT_SECRET_KEY
             });
 
-            this.accessToken = response.data.access_token;
-            this.tokenExpiry = Date.now() + (response.data.expires_in * 1000);
+            this.accessToken = response.data.data.accessToken;
+            this.tokenExpiry = Date.now() + (response.data.data.expiresIn * 1000);
             
             console.log('✅ ComPDFKit authenticated successfully');
             return true;
@@ -119,13 +117,13 @@ class ComPDFKitAPI {
         }
 
         try {
-            const response = await axios.post(`${COMPDFKIT_API_BASE}/v1/task/${conversionType}`, {}, {
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/server/v1/task/${conversionType}`, {}, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`
                 }
             });
 
-            return response.data.taskId;
+            return response.data.data.taskId;
         } catch (error) {
             console.error('❌ Create task failed:', error.response?.data || error.message);
             throw error;
@@ -140,17 +138,17 @@ class ComPDFKitAPI {
         try {
             const formData = new FormData();
             formData.append('file', fs.createReadStream(filePath));
+            formData.append('taskId', taskId);
             formData.append('parameter', JSON.stringify(parameters));
 
-            const response = await axios.post(`${COMPDFKIT_API_BASE}/v1/file/upload`, formData, {
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/server/v1/file/upload`, formData, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`,
                     ...formData.getHeaders()
-                },
-                params: { taskId }
+                }
             });
 
-            return response.data.fileKey;
+            return response.data.data.fileKey;
         } catch (error) {
             console.error('❌ Upload file failed:', error.response?.data || error.message);
             throw error;
@@ -163,7 +161,7 @@ class ComPDFKitAPI {
         }
 
         try {
-            const response = await axios.post(`${COMPDFKIT_API_BASE}/v1/execute/start`, {}, {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/execute/start`, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`
                 },
@@ -183,14 +181,14 @@ class ComPDFKitAPI {
         }
 
         try {
-            const response = await axios.get(`${COMPDFKIT_API_BASE}/v1/task/taskInfo`, {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/task/taskInfo`, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`
                 },
                 params: { taskId }
             });
 
-            return response.data;
+            return response.data.data;
         } catch (error) {
             console.error('❌ Get task info failed:', error.response?.data || error.message);
             throw error;
@@ -203,7 +201,7 @@ class ComPDFKitAPI {
         }
 
         try {
-            const response = await axios.get(`${COMPDFKIT_API_BASE}/v1/file/download`, {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/file/download`, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`
                 },
