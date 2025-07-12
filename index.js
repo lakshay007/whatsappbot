@@ -308,8 +308,35 @@ async function convertDocument(sourceFilePath, targetFormat, originalFilename) {
         const taskId = await compdfkitAPI.createTask(conversionType);
         console.log(`📋 Created task: ${taskId}`);
         
-        // Upload file
-        const fileKey = await compdfkitAPI.uploadFile(taskId, sourceFilePath);
+        // Upload file with format-specific parameters
+        let uploadParams = {};
+        
+        // Add modern format parameters for specific conversions
+        if (targetFormat === 'docx' || targetFormat === 'doc') {
+            // PDF to Word - use modern DOCX format parameters
+            uploadParams = {
+                "enableAiLayout": 1,        // Use AI layout analysis for better formatting
+                "isContainImg": 1,          // Include images
+                "isContainAnnot": 1,        // Include annotations
+                "pageLayoutMode": "e_Flow", // Modern flow layout (not compatibility mode)
+                "enableOcr": 0,             // Disable OCR unless needed
+                "formulaToImage": 1         // Convert formulas properly
+            };
+        } else if (targetFormat === 'xlsx' || targetFormat === 'xls') {
+            // PDF to Excel parameters
+            uploadParams = {
+                "isContainImg": 1,
+                "isAllowOcr": 0
+            };
+        } else if (targetFormat === 'pptx' || targetFormat === 'ppt') {
+            // PDF to PowerPoint parameters
+            uploadParams = {
+                "isContainImg": 1,
+                "isContainAnnot": 1
+            };
+        }
+        
+        const fileKey = await compdfkitAPI.uploadFile(taskId, sourceFilePath, uploadParams);
         console.log(`📤 Uploaded file: ${fileKey}`);
         
         // Execute task
