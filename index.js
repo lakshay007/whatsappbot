@@ -270,44 +270,34 @@ function masterSearchDocuments(query) {
 
 // File conversion functions using iLovePDF API
 const CONVERSION_MAPPING = {
-    // To PDF conversions
+    // To PDF conversions (confirmed working)
     'pdf': {
-        'doc': 'officetopdf',
-        'docx': 'officetopdf',
-        'xls': 'officetopdf',
-        'xlsx': 'officetopdf',
-        'ppt': 'officetopdf',
-        'pptx': 'officetopdf',
-        'jpg': 'imagetopdf',
-        'jpeg': 'imagetopdf',
-        'png': 'imagetopdf',
-        'gif': 'imagetopdf',
-        'bmp': 'imagetopdf',
-        'tiff': 'imagetopdf',
-        'tif': 'imagetopdf'
+        'doc': 'officepdf',
+        'docx': 'officepdf',
+        'xls': 'officepdf',
+        'xlsx': 'officepdf',
+        'ppt': 'officepdf',
+        'pptx': 'officepdf',
+        'jpg': 'imagepdf',
+        'jpeg': 'imagepdf',
+        'png': 'imagepdf',
+        'gif': 'imagepdf',
+        'bmp': 'imagepdf',
+        'tiff': 'imagepdf',
+        'tif': 'imagepdf'
     },
-    // From PDF conversions
-    'docx': {
-        'pdf': 'pdftoword'
-    },
-    'doc': {
-        'pdf': 'pdftoword'
-    },
-    'xlsx': {
-        'pdf': 'pdftoexcel'
-    },
-    'pptx': {
-        'pdf': 'pdftopowerpoint'
-    },
+    // From PDF conversions (confirmed working)
     'jpg': {
-        'pdf': 'pdftojpg'
+        'pdf': 'pdfjpg'
     },
     'jpeg': {
-        'pdf': 'pdftojpg'
+        'pdf': 'pdfjpg'
     },
     'png': {
-        'pdf': 'pdftojpg'
+        'pdf': 'pdfjpg'
     }
+    // NOTE: PDF to Word/Excel/PowerPoint conversions may not be available
+    // with the current task types. These will be added once confirmed.
 };
 
 function getSupportedConversions(fromExt) {
@@ -356,10 +346,8 @@ async function convertFileUsingILovePDF(filePath, fromExt, toExt, originalFilena
         // Set processing options based on conversion type
         const processingOptions = {};
         
-        if (endpoint === 'pdftojpg') {
-            processingOptions.pdftojpg_mode = 'pages'; // Convert all pages
-        } else if (endpoint === 'pdftoword') {
-            processingOptions.word_version = 'docx'; // Always use modern format
+        if (endpoint === 'pdfjpg') {
+            processingOptions.pdfjpg_mode = 'pages'; // Convert all pages
         }
         
         // Process the file
