@@ -2194,8 +2194,17 @@ client.on('message_create', async message => {
                     const contact = await message.getContact();
                     const senderName = contact.pushname || contact.name || contact.number || 'Unknown';
                     
-                    // Skip storing bot commands and system messages
-                    if (!message.body.startsWith('?') && !message.body.startsWith('!')) {
+                    // Skip storing:
+                    // - Bot commands (?help, !status, etc.)
+                    // - Messages mentioning "chotu" (queries to bot)
+                    // - Messages with @mentions of the bot
+                    const messageText = message.body.toLowerCase();
+                    const shouldSkip = messageText.startsWith('?') || 
+                                     messageText.startsWith('!') ||
+                                     messageText.includes('chotu') ||
+                                     messageText.includes('@chotu');
+                    
+                    if (!shouldSkip) {
                         await memoryManager.storeMessage(
                             chat.id._serialized,
                             senderName,
