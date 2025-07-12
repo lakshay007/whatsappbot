@@ -1,19 +1,348 @@
 const { Client, LocalAuth, MessageMedia, Poll } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const ILovePDFApi = require('@ilovepdf/ilovepdf-nodejs');
-const ILovePDFFile = require('@ilovepdf/ilovepdf-nodejs/ILovePDFFile');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
+const FormData = require('form-data');
 require('dotenv').config();
+
+// ComPDFKit API Configuration
+const COMPDFKIT_API_BASE = 'https://api.compdf.com';
+const COMPDFKIT_PUBLIC_KEY = process.env.COMPDFKIT_PUBLIC_KEY;
+const COMPDFKIT_SECRET_KEY = process.env.COMPDFKIT_SECRET_KEY;
+
+// ComPDFKit conversion type mappings
+const CONVERSION_TYPES = {
+    // Office to PDF
+    'pdf': {
+        'docx': 'word-to-pdf',
+        'doc': 'word-to-pdf',
+        'xlsx': 'excel-to-pdf',
+        'xls': 'excel-to-pdf',
+        'pptx': 'ppt-to-pdf',
+        'ppt': 'ppt-to-pdf',
+        'rtf': 'rtf-to-pdf',
+        'txt': 'txt-to-pdf',
+        'html': 'html-to-pdf',
+        'htm': 'html-to-pdf',
+        'csv': 'csv-to-pdf',
+        'jpg': 'image-to-pdf',
+        'jpeg': 'image-to-pdf',
+        'png': 'image-to-pdf',
+        'gif': 'image-to-pdf',
+        'bmp': 'image-to-pdf',
+        'tiff': 'image-to-pdf'
+    },
+    // PDF to Office
+    'docx': {
+        'pdf': 'pdf-to-word'
+    },
+    'doc': {
+        'pdf': 'pdf-to-word'
+    },
+    'xlsx': {
+        'pdf': 'pdf-to-excel'
+    },
+    'xls': {
+        'pdf': 'pdf-to-excel'
+    },
+    'pptx': {
+        'pdf': 'pdf-to-ppt'
+    },
+    'ppt': {
+        'pdf': 'pdf-to-ppt'
+    },
+    'rtf': {
+        'pdf': 'pdf-to-rtf'
+    },
+    'txt': {
+        'pdf': 'pdf-to-txt'
+    },
+    'html': {
+        'pdf': 'pdf-to-html'
+    },
+    'htm': {
+        'pdf': 'pdf-to-html'
+    },
+    'csv': {
+        'pdf': 'pdf-to-csv'
+    },
+    'jpg': {
+        'pdf': 'pdf-to-image'
+    },
+    'jpeg': {
+        'pdf': 'pdf-to-image'
+    },
+    'png': {
+        'pdf': 'pdf-to-image'
+    }
+};
+
+// ComPDFKit API Client
+class ComPDFKitAPI {
+    constructor() {
+        this.accessToken = null;
+        this.tokenExpiry = null;
+    }
+
+    async authenticate() {
+        try {
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/oauth/token`, {
+                grant_type: 'client_credentials',
+                client_id: COMPDFKIT_PUBLIC_KEY,
+                client_secret: COMPDFKIT_SECRET_KEY,
+                scope: 'all'
+            });
+
+            this.accessToken = response.data.access_token;
+            this.tokenExpiry = Date.now() + (response.data.expires_in * 1000);
+            
+            console.log('✅ ComPDFKit authenticated successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ ComPDFKit authentication failed:', error.response?.data || error.message);
+            return false;
+        }
+    }
+
+    async ensureAuthenticated() {
+        if (!this.accessToken || Date.now() >= this.tokenExpiry) {
+            return await this.authenticate();
+        }
+        return true;
+    }
+
+    async createTask(conversionType) {
+        if (!await this.ensureAuthenticated()) {
+            throw new Error('Authentication failed');
+        }
+
+        try {
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/v1/task/${conversionType}`, {}, {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                }
+            });
+
+            return response.data.taskId;
+        } catch (error) {
+            console.error('❌ Create task failed:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    async uploadFile(taskId, filePath, parameters = {}) {
+        if (!await this.ensureAuthenticated()) {
+            throw new Error('Authentication failed');
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('file', fs.createReadStream(filePath));
+            formData.append('parameter', JSON.stringify(parameters));
+
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/v1/file/upload`, formData, {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`,
+                    ...formData.getHeaders()
+                },
+                params: { taskId }
+            });
+
+            return response.data.fileKey;
+        } catch (error) {
+            console.error('❌ Upload file failed:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    async executeTask(taskId) {
+        if (!await this.ensureAuthenticated()) {
+            throw new Error('Authentication failed');
+        }
+
+        try {
+            const response = await axios.post(`${COMPDFKIT_API_BASE}/v1/execute/start`, {}, {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                },
+                params: { taskId }
+            });
+
+            return response.data;
+        } catch (error) {
+            console.error('❌ Execute task failed:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    async getTaskInfo(taskId) {
+        if (!await this.ensureAuthenticated()) {
+            throw new Error('Authentication failed');
+        }
+
+        try {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/v1/task/taskInfo`, {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                },
+                params: { taskId }
+            });
+
+            return response.data;
+        } catch (error) {
+            console.error('❌ Get task info failed:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    async downloadFile(fileKey, outputPath) {
+        if (!await this.ensureAuthenticated()) {
+            throw new Error('Authentication failed');
+        }
+
+        try {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/v1/file/download`, {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                },
+                params: { fileKey },
+                responseType: 'stream'
+            });
+
+            const writer = fs.createWriteStream(outputPath);
+            response.data.pipe(writer);
+
+            return new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+        } catch (error) {
+            console.error('❌ Download file failed:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+}
+
+// Initialize ComPDFKit API client
+const compdfkitAPI = new ComPDFKitAPI();
+
+// Helper function to get supported conversion types
+function getSupportedConversions(sourceFormat) {
+    const conversions = [];
+    const sourceExt = sourceFormat.toLowerCase();
+    
+    if (CONVERSION_TYPES[sourceExt]) {
+        Object.keys(CONVERSION_TYPES[sourceExt]).forEach(targetExt => {
+            conversions.push(targetExt);
+        });
+    }
+    
+    // Also check if this format can be converted TO from other formats
+    Object.keys(CONVERSION_TYPES).forEach(targetExt => {
+        if (CONVERSION_TYPES[targetExt] && CONVERSION_TYPES[targetExt][sourceExt]) {
+            if (!conversions.includes(targetExt)) {
+                conversions.push(targetExt);
+            }
+        }
+    });
+    
+    return conversions;
+}
+
+// Helper function to get conversion type from source and target formats
+function getConversionType(sourceFormat, targetFormat) {
+    const sourceExt = sourceFormat.toLowerCase();
+    const targetExt = targetFormat.toLowerCase();
+    
+    if (CONVERSION_TYPES[targetExt] && CONVERSION_TYPES[targetExt][sourceExt]) {
+        return CONVERSION_TYPES[targetExt][sourceExt];
+    }
+    
+    return null;
+}
+
+// Helper function to detect file format from filename
+function getFileExtension(filename) {
+    return path.extname(filename).toLowerCase().substring(1);
+}
+
+// Document conversion function
+async function convertDocument(sourceFilePath, targetFormat, originalFilename) {
+    try {
+        const sourceFormat = getFileExtension(originalFilename);
+        const conversionType = getConversionType(sourceFormat, targetFormat);
+        
+        if (!conversionType) {
+            throw new Error(`Conversion from ${sourceFormat} to ${targetFormat} is not supported`);
+        }
+        
+        console.log(`🔄 Starting conversion: ${sourceFormat} → ${targetFormat} (${conversionType})`);
+        
+        // Create task
+        const taskId = await compdfkitAPI.createTask(conversionType);
+        console.log(`📋 Created task: ${taskId}`);
+        
+        // Upload file
+        const fileKey = await compdfkitAPI.uploadFile(taskId, sourceFilePath);
+        console.log(`📤 Uploaded file: ${fileKey}`);
+        
+        // Execute task
+        await compdfkitAPI.executeTask(taskId);
+        console.log(`▶️ Task executed, processing...`);
+        
+        // Poll for completion
+        let attempts = 0;
+        const maxAttempts = 30; // 5 minutes max
+        
+        while (attempts < maxAttempts) {
+            const taskInfo = await compdfkitAPI.getTaskInfo(taskId);
+            
+            if (taskInfo.taskStatus === 'TaskFinish') {
+                console.log(`✅ Conversion completed successfully`);
+                
+                // Download result
+                const outputFilename = `${path.basename(originalFilename, '.' + sourceFormat)}_converted.${targetFormat}`;
+                const outputPath = path.join(__dirname, 'temp', outputFilename);
+                
+                // Ensure temp directory exists
+                if (!fs.existsSync(path.join(__dirname, 'temp'))) {
+                    fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
+                }
+                
+                await compdfkitAPI.downloadFile(taskInfo.fileInfos[0].fileKey, outputPath);
+                console.log(`📥 Downloaded result: ${outputPath}`);
+                
+                return {
+                    success: true,
+                    outputPath,
+                    outputFilename,
+                    conversionType,
+                    sourceFormat,
+                    targetFormat
+                };
+            } else if (taskInfo.taskStatus === 'TaskError') {
+                throw new Error(`Conversion failed: ${taskInfo.errorMessage || 'Unknown error'}`);
+            }
+            
+            // Wait before next poll
+            await new Promise(resolve => setTimeout(resolve, 10000)); // 10 seconds
+            attempts++;
+        }
+        
+        throw new Error('Conversion timeout - task did not complete within 5 minutes');
+        
+    } catch (error) {
+        console.error('❌ Conversion failed:', error.message);
+        throw error;
+    }
+}
 
 // Initialize Gemini AI with model switching using multiple API keys
 const genAI1 = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const genAI2 = process.env.GEMINI_API_KEY2 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY2) : null;
 const genAI3 = process.env.GEMINI_API_KEY3 ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY3) : null;
-
-// Initialize iLovePDF API
-const ilovepdf = new ILovePDFApi(process.env.ILOVEPDF_PUBLIC_KEY, process.env.ILOVEPDF_SECRET_KEY);
 
 // Model and API key rotation setup (only 2.0-flash and 2.0-flash-lite)
 const MODEL_ROTATION = [
@@ -266,153 +595,6 @@ function masterSearchDocuments(query) {
         console.error('❌ Error in master search:', error);
         return [];
     }
-}
-
-// File conversion functions using iLovePDF API
-const CONVERSION_MAPPING = {
-    // To PDF conversions (confirmed working)
-    'pdf': {
-        'doc': 'officepdf',
-        'docx': 'officepdf',
-        'xls': 'officepdf',
-        'xlsx': 'officepdf',
-        'ppt': 'officepdf',
-        'pptx': 'officepdf',
-        'jpg': 'imagepdf',
-        'jpeg': 'imagepdf',
-        'png': 'imagepdf',
-        'gif': 'imagepdf',
-        'bmp': 'imagepdf',
-        'tiff': 'imagepdf',
-        'tif': 'imagepdf'
-    },
-    // From PDF conversions (confirmed working)
-    'jpg': {
-        'pdf': 'pdfjpg'
-    },
-    'jpeg': {
-        'pdf': 'pdfjpg'
-    },
-    'png': {
-        'pdf': 'pdfjpg'
-    }
-    // NOTE: PDF to Word/Excel/PowerPoint conversions may not be available
-    // with the current task types. These will be added once confirmed.
-};
-
-function getSupportedConversions(fromExt) {
-    const conversions = [];
-    
-    // Check what this file type can be converted TO
-    for (const [toFormat, fromFormats] of Object.entries(CONVERSION_MAPPING)) {
-        if (fromFormats[fromExt]) {
-            conversions.push(toFormat);
-        }
-    }
-    
-    return conversions;
-}
-
-function getConversionEndpoint(fromExt, toExt) {
-    const toFormatMap = CONVERSION_MAPPING[toExt];
-    if (!toFormatMap) return null;
-    
-    return toFormatMap[fromExt] || null;
-}
-
-async function convertFileUsingILovePDF(filePath, fromExt, toExt, originalFilename) {
-    try {
-        console.log(`🔄 Starting conversion: ${fromExt} → ${toExt}`);
-        
-        const endpoint = getConversionEndpoint(fromExt, toExt);
-        if (!endpoint) {
-            throw new Error(`Conversion from ${fromExt} to ${toExt} is not supported`);
-        }
-        
-        console.log(`📡 Using iLovePDF endpoint: ${endpoint}`);
-        
-        // Create a new task
-        const task = ilovepdf.newTask(endpoint);
-        
-        // Start the task
-        await task.start();
-        console.log(`✅ Task started with ID: ${task.taskId}`);
-        
-        // Create and add file
-        const file = new ILovePDFFile(filePath);
-        await task.addFile(file);
-        console.log(`📁 File added to task: ${originalFilename}`);
-        
-        // Set processing options based on conversion type
-        const processingOptions = {};
-        
-        if (endpoint === 'pdfjpg') {
-            processingOptions.pdfjpg_mode = 'pages'; // Convert all pages
-        }
-        
-        // Process the file
-        await task.process(processingOptions);
-        console.log(`⚙️ Processing completed`);
-        
-        // Download the result
-        const downloadedFile = await task.download();
-        console.log(`📥 Download completed`);
-        
-        return downloadedFile;
-        
-    } catch (error) {
-        console.error('❌ iLovePDF conversion error:', error);
-        throw error;
-    }
-}
-
-function getOutputFilename(originalFilename, toExt) {
-    const baseName = path.basename(originalFilename, path.extname(originalFilename));
-    return `${baseName}_converted.${toExt}`;
-}
-
-function isConversionSupported(fileMimetype) {
-    const supportedTypes = [
-        // Office documents
-        'application/pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
-        'application/msword', // doc
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
-        'application/vnd.ms-excel', // xls
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
-        'application/vnd.ms-powerpoint', // ppt
-        // Images
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-        'image/gif',
-        'image/bmp',
-        'image/tiff',
-        'image/tif'
-    ];
-    
-    return supportedTypes.includes(fileMimetype);
-}
-
-function getFileExtensionFromMimetype(mimetype) {
-    const mimeMap = {
-        'application/pdf': 'pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-        'application/msword': 'doc',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-        'application/vnd.ms-excel': 'xls',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-        'application/vnd.ms-powerpoint': 'ppt',
-        'image/jpeg': 'jpg',
-        'image/jpg': 'jpg',
-        'image/png': 'png',
-        'image/gif': 'gif',
-        'image/bmp': 'bmp',
-        'image/tiff': 'tiff',
-        'image/tif': 'tif'
-    };
-    
-    return mimeMap[mimetype] || null;
 }
 
 // Create client with optimized settings
@@ -1915,153 +2097,6 @@ client.on('message_create', async message => {
             }
         }
         
-        // CONVERT COMMAND
-        else if (message.body.startsWith('?convert ')) {
-            const chat = await message.getChat();
-            const convertFormat = message.body.substring(9).trim().toLowerCase(); // Remove "?convert "
-            
-            if (!convertFormat) {
-                return message.reply('Usage: ?convert <format>\nExample: ?convert pdf or ?convert docx\n\nReply to any file with this command to convert it to the specified format.');
-            }
-            
-            // Check if this is a reply to a message with media
-            if (!message.hasQuotedMsg) {
-                return message.reply('⚠️ Please reply to a file with ?convert <format>\nExample: Reply to a Word document with "?convert pdf"');
-            }
-            
-            try {
-                const quotedMsg = await message.getQuotedMessage();
-                
-                if (!quotedMsg.hasMedia) {
-                    return message.reply('⚠️ The message you replied to doesn\'t contain a file. Please reply to a file with ?convert <format>');
-                }
-                
-                console.log(`🔄 Conversion request: ${quotedMsg.type} → ${convertFormat}`);
-                
-                // Download the media
-                const media = await quotedMsg.downloadMedia();
-                
-                if (!media || !media.mimetype) {
-                    return message.reply('❌ Could not download the file. Please try again.');
-                }
-                
-                // Check if the file type is supported for conversion
-                if (!isConversionSupported(media.mimetype)) {
-                    return message.reply(`❌ File type ${media.mimetype} is not supported for conversion.\n\nSupported formats: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), Images (jpg/png/gif/bmp/tiff)`);
-                }
-                
-                // Get file extension from mimetype
-                const fromExt = getFileExtensionFromMimetype(media.mimetype);
-                if (!fromExt) {
-                    return message.reply('❌ Could not determine file format. Please try with a different file.');
-                }
-                
-                // Check if the conversion is supported
-                const supportedConversions = getSupportedConversions(fromExt);
-                if (!supportedConversions.includes(convertFormat)) {
-                    const supportedList = supportedConversions.join(', ');
-                    return message.reply(`❌ Cannot convert ${fromExt.toUpperCase()} to ${convertFormat.toUpperCase()}.\n\nSupported conversions for ${fromExt.toUpperCase()}: ${supportedList}`);
-                }
-                
-                // Check if trying to convert to same format
-                if (fromExt === convertFormat) {
-                    return message.reply(`💡 File is already in ${convertFormat.toUpperCase()} format. No conversion needed!`);
-                }
-                
-                // Check file size (iLovePDF has limits)
-                const fileSize = media.data.length * 0.75; // Approximate size from base64
-                const maxSize = 100 * 1024 * 1024; // 100MB limit
-                
-                if (fileSize > maxSize) {
-                    const sizeMB = Math.round(fileSize / 1024 / 1024);
-                    return message.reply(`❌ File too large: ${sizeMB}MB. Maximum file size for conversion is 100MB.`);
-                }
-                
-                // Send "processing" message
-                await chat.sendStateTyping();
-                const processingMsg = await message.reply(`🔄 Converting ${fromExt.toUpperCase()} to ${convertFormat.toUpperCase()}...\n\nThis may take a few moments depending on file size.`);
-                
-                // Create temporary file for conversion
-                const tempDir = path.join(__dirname, 'temp');
-                if (!fs.existsSync(tempDir)) {
-                    fs.mkdirSync(tempDir);
-                }
-                
-                const originalFilename = media.filename || `file.${fromExt}`;
-                const tempFilePath = path.join(tempDir, `temp_${Date.now()}_${originalFilename}`);
-                
-                // Save file to disk
-                fs.writeFileSync(tempFilePath, media.data, 'base64');
-                console.log(`💾 Temporary file saved: ${tempFilePath}`);
-                
-                try {
-                    // Convert using iLovePDF
-                    const convertedFile = await convertFileUsingILovePDF(tempFilePath, fromExt, convertFormat, originalFilename);
-                    
-                    // Create output filename
-                    const outputFilename = getOutputFilename(originalFilename, convertFormat);
-                    
-                    // Send the converted file
-                    const convertedMedia = new MessageMedia(
-                        `application/${convertFormat}`, 
-                        convertedFile.toString('base64'), 
-                        outputFilename
-                    );
-                    
-                    await chat.sendMessage(convertedMedia, {
-                        caption: `✅ Converted: ${fromExt.toUpperCase()} → ${convertFormat.toUpperCase()}\n📄 ${outputFilename}`
-                    });
-                    
-                    console.log(`✅ File converted and sent: ${fromExt} → ${convertFormat}`);
-                    
-                    // Delete the processing message
-                    try {
-                        await processingMsg.delete(true);
-                    } catch (deleteError) {
-                        console.log('ℹ️ Could not delete processing message');
-                    }
-                    
-                } catch (conversionError) {
-                    console.error('❌ Conversion failed:', conversionError);
-                    
-                    let errorMessage = '❌ Conversion failed. ';
-                    
-                    if (conversionError.message.includes('not supported')) {
-                        errorMessage += 'This conversion type is not supported.';
-                    } else if (conversionError.message.includes('quota') || conversionError.message.includes('limit')) {
-                        errorMessage += 'API quota exceeded. Please try again later.';
-                    } else if (conversionError.message.includes('network') || conversionError.message.includes('timeout')) {
-                        errorMessage += 'Network error. Please check your connection and try again.';
-                    } else {
-                        errorMessage += 'Please try again or contact support.';
-                    }
-                    
-                    await message.reply(errorMessage);
-                    
-                    // Delete the processing message
-                    try {
-                        await processingMsg.delete(true);
-                    } catch (deleteError) {
-                        console.log('ℹ️ Could not delete processing message');
-                    }
-                }
-                
-                // Clean up temporary file
-                try {
-                    if (fs.existsSync(tempFilePath)) {
-                        fs.unlinkSync(tempFilePath);
-                        console.log(`🧹 Cleaned up temporary file: ${tempFilePath}`);
-                    }
-                } catch (cleanupError) {
-                    console.error('❌ Error cleaning up temporary file:', cleanupError);
-                }
-                
-            } catch (error) {
-                console.error('❌ Error in convert command:', error);
-                await message.reply('❌ An error occurred while processing the conversion. Please try again.');
-            }
-        }
-        
         // MASTER SEARCH COMMAND (Owner only - hidden from help)
         else if (message.body.startsWith('?mastersearch ')) {
             const chat = await message.getChat();
@@ -2211,6 +2246,94 @@ client.on('message_create', async message => {
             }
         }
         
+        // CONVERT COMMAND
+        else if (message.body.startsWith('?convert ')) {
+            const chat = await message.getChat();
+            const targetFormat = message.body.substring(9).trim().toLowerCase(); // Remove "?convert "
+            
+            if (!targetFormat) {
+                return message.reply('Usage: ?convert <format>\n\nReply to a document with ?convert pdf or ?convert docx to convert it.\n\nSupported formats: pdf, docx, doc, xlsx, xls, pptx, ppt, rtf, txt, html, csv, jpg, jpeg, png');
+            }
+            
+            // Check if this is a reply to a message
+            if (!message.hasQuotedMsg) {
+                return message.reply('Please reply to a document with ?convert <format>.\n\nExample: Reply to a PDF with "?convert docx" to convert it to Word format.');
+            }
+            
+            try {
+                const quotedMessage = await message.getQuotedMessage();
+                
+                if (!quotedMessage.hasMedia) {
+                    return message.reply('The message you replied to doesn\'t contain a document. Please reply to a document.');
+                }
+                
+                await chat.sendStateTyping();
+                
+                // Download the quoted media
+                console.log(`🔄 Processing conversion request to ${targetFormat}`);
+                const media = await quotedMessage.downloadMedia();
+                
+                if (!media || !media.filename) {
+                    return message.reply('Could not download the document. Please try again.');
+                }
+                
+                const sourceFormat = getFileExtension(media.filename);
+                const conversionType = getConversionType(sourceFormat, targetFormat);
+                
+                if (!conversionType) {
+                    const supportedFormats = getSupportedConversions(sourceFormat);
+                    if (supportedFormats.length === 0) {
+                        return message.reply(`Files with .${sourceFormat} extension are not supported for conversion.`);
+                    }
+                    return message.reply(`Cannot convert .${sourceFormat} to .${targetFormat}.\n\nSupported conversions for .${sourceFormat}: ${supportedFormats.join(', ')}`);
+                }
+                
+                // Save the original file temporarily
+                const tempDir = path.join(__dirname, 'temp');
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
+                
+                const tempInputPath = path.join(tempDir, `input_${Date.now()}_${media.filename}`);
+                fs.writeFileSync(tempInputPath, media.data, 'base64');
+                
+                console.log(`📁 Saved temp file: ${tempInputPath}`);
+                
+                // Check if ComPDFKit is configured
+                if (!COMPDFKIT_PUBLIC_KEY || !COMPDFKIT_SECRET_KEY) {
+                    // Clean up temp file
+                    fs.unlinkSync(tempInputPath);
+                    return message.reply('Document conversion is not configured. Please contact the administrator.');
+                }
+                
+                await message.reply(`🔄 Converting ${media.filename} from ${sourceFormat.toUpperCase()} to ${targetFormat.toUpperCase()}...\n\nThis may take a few minutes. Please wait.`);
+                
+                // Convert the document
+                const result = await convertDocument(tempInputPath, targetFormat, media.filename);
+                
+                if (result.success) {
+                    // Send the converted file
+                    const convertedMedia = MessageMedia.fromFilePath(result.outputPath);
+                    await chat.sendMessage(convertedMedia, {
+                        caption: `✅ Converted: ${media.filename}\n📄 ${result.sourceFormat.toUpperCase()} → ${result.targetFormat.toUpperCase()}\n🔧 Using ComPDFKit API`
+                    });
+                    
+                    console.log(`✅ Conversion completed: ${media.filename} → ${result.outputFilename}`);
+                    
+                    // Clean up temp files
+                    fs.unlinkSync(tempInputPath);
+                    fs.unlinkSync(result.outputPath);
+                    
+                } else {
+                    await message.reply('❌ Conversion failed. Please try again or contact support.');
+                }
+                
+            } catch (error) {
+                console.error('❌ Error in convert command:', error);
+                await message.reply(`❌ Conversion failed: ${error.message}\n\nPlease try again or contact support.`);
+            }
+        }
+        
         // MASTER SEARCH NUMBER SELECTION (Owner only - handle replies with numbers)
         else if (message.body.match(/^\d+$/) && ownerLastMasterSearch) {
             const chat = await message.getChat();
@@ -2285,14 +2408,14 @@ client.on('message_create', async message => {
                 `   Example: ?poll -m fav food, pizza, burger, sushi\n` +
                 `   • Creates native WhatsApp poll with tap-to-vote\n` +
                 `   • Up to 12 options allowed\n\n` +
-                `🔄 FILE CONVERSION:\n` +
-                `   ?convert <format> - Convert files to different formats\n` +
-                `   Example: Reply to a Word document with "?convert pdf"\n` +
-                `   Example: Reply to a PDF with "?convert docx"\n` +
-                `   • Supported formats: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), Images (jpg/png/gif/bmp/tiff)\n` +
-                `   • Common conversions: Word↔PDF, Excel→PDF, PowerPoint→PDF, Images→PDF, PDF→Images\n` +
-                `   • Maximum file size: 100MB\n` +
-                `   • Powered by iLovePDF API\n\n` +
+                `🔄 DOCUMENT CONVERSION:\n` +
+                `   ?convert <format> - Convert documents between formats\n` +
+                `   Reply to any document with ?convert pdf, ?convert docx, etc.\n` +
+                `   Example: Reply to a Word doc with "?convert pdf"\n` +
+                `   • Supported formats: PDF, DOCX, DOC, XLSX, XLS, PPTX, PPT, RTF, TXT, HTML, CSV, JPG, PNG\n` +
+                `   • Office ↔ PDF conversions (Word, Excel, PowerPoint)\n` +
+                `   • Images to PDF and PDF to images\n` +
+                `   • Powered by ComPDFKit API\n\n` +
                 `🎨 MULTIMODAL AI:\n` +
                 `   Reply to any image or PDF while mentioning chotu to analyze it!\n` +
                 `   • Ask questions: "chotu what's in this image?", "@chotu explain this meme"\n` +
