@@ -188,6 +188,7 @@ class ComPDFKitAPI {
                 params: { taskId }
             });
 
+            console.log(`🔍 Raw getTaskInfo response:`, JSON.stringify(response.data, null, 2));
             return response.data.data;
         } catch (error) {
             console.error('❌ Get task info failed:', error.response?.data || error.message);
@@ -325,6 +326,13 @@ async function convertDocument(sourceFilePath, targetFormat, originalFilename) {
             
             if (taskInfo.taskStatus === 'TaskFinish') {
                 console.log(`✅ Conversion completed successfully`);
+                console.log(`🔍 Task info response:`, JSON.stringify(taskInfo, null, 2));
+                
+                // Check if fileInfos exists and has files
+                if (!taskInfo.fileInfos || !Array.isArray(taskInfo.fileInfos) || taskInfo.fileInfos.length === 0) {
+                    console.error(`❌ No file info found in task response`);
+                    throw new Error('No result files found in task response');
+                }
                 
                 // Download result
                 const outputFilename = `${path.basename(originalFilename, '.' + sourceFormat)}_converted.${targetFormat}`;
@@ -335,7 +343,10 @@ async function convertDocument(sourceFilePath, targetFormat, originalFilename) {
                     fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
                 }
                 
-                await compdfkitAPI.downloadFile(taskInfo.fileInfos[0].fileKey, outputPath);
+                const fileKey = taskInfo.fileInfos[0].fileKey;
+                console.log(`📥 Downloading file with key: ${fileKey}`);
+                
+                await compdfkitAPI.downloadFile(fileKey, outputPath);
                 console.log(`📥 Downloaded result: ${outputPath}`);
                 
                 return {
