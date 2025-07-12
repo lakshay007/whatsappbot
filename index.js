@@ -117,7 +117,7 @@ class ComPDFKitAPI {
         }
 
         try {
-            const response = await axios.post(`${COMPDFKIT_API_BASE}/server/v1/task/${conversionType}`, {}, {
+            const response = await axios.get(`${COMPDFKIT_API_BASE}/server/v1/task/${conversionType}`, {
                 headers: {
                     'Authorization': `Bearer ${this.accessToken}`
                 }
