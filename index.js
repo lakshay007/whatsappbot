@@ -3,7 +3,6 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
-const CallingAgent = require('./calling-agent');
 require('dotenv').config();
 
 // Initialize Gemini AI with model switching using multiple API keys
@@ -283,12 +282,6 @@ const client = new Client({
     }
 });
 
-// Initialize calling agent
-let callingAgent;
-
-// Pending call requests storage for manual phone number input
-const pendingCallRequests = new Map();
-
 // Graceful shutdown function
 function gracefulShutdown() {
     console.log('🔄 Initiating graceful shutdown...');
@@ -396,9 +389,6 @@ client.on('ready', () => {
     isReady = true;
     lastHeartbeat = Date.now();
     reconnectAttempts = 0; // Reset on successful connection
-    
-    // Initialize calling agent
-    callingAgent = new CallingAgent(client);
     
     // Start monitoring
     startMonitoring();
@@ -1116,171 +1106,6 @@ client.on('message_create', async message => {
                     } catch (error) {
                         console.error('❌ Error storing document:', error);
                     }
-                }
-            }
-        }
-        
-        // CALLING AGENT - Owner only
-        if (message.body.toLowerCase().includes('phone call')) {
-            const senderId = message.author || message.from;
-            
-            // Check if sender is the owner
-            if (senderId === '917428233446@c.us') {
-                console.log('📞 Phone call request detected from owner');
-                
-                if (!callingAgent) {
-                    await message.reply('📞 Calling agent is not initialized yet. Please wait a moment and try again.');
-                    return;
-                }
-                
-                const chat = await message.getChat();
-                await chat.sendStateTyping();
-                
-                // Handle the calling request
-                const result = await callingAgent.handleCallingRequest(message.body, chat);
-                
-                if (result.success) {
-                    await message.reply(`📞 Calling ${result.contactName} (${result.phoneNumber})...\n\n🗣️ Message to deliver: "${result.messageDelivered}"\n\n⏱️ I'll update you with the call summary once it's completed.`);
-                    
-                    // Set up call summary check after a delay
-                    setTimeout(async () => {
-                        try {
-                            const summary = await callingAgent.getCallSummary(result.callId);
-                            
-                            if (!summary.error) {
-                                let summaryText = `📞 Live Call Summary:\n\n`;
-                                summaryText += `👤 Contact: ${summary.contactName}\n`;
-                                summaryText += `📱 Number: ${summary.phoneNumber}\n`;
-                                summaryText += `🗣️ Original message: "${summary.messageDelivered}"\n`;
-                                summaryText += `📊 Status: ${summary.status}\n`;
-                                summaryText += `⏱️ Duration: ${summary.duration} seconds\n\n`;
-                                
-                                if (summary.conversationSummary && summary.conversationSummary !== 'Conversation in progress...') {
-                                    summaryText += `💬 Conversation Summary:\n${summary.conversationSummary}\n\n`;
-                                }
-                                
-                                if (summary.conversationHistory && summary.conversationHistory.length > 0) {
-                                    summaryText += `📝 Full Conversation:\n`;
-                                    summary.conversationHistory.forEach((msg, index) => {
-                                        const speaker = msg.role === 'user' ? summary.contactName : 'Assistant';
-                                        summaryText += `${speaker}: "${msg.content}"\n`;
-                                    });
-                                } else {
-                                    summaryText += `📝 No conversation recorded - call may have gone to voicemail`;
-                                }
-                                
-                                await chat.sendMessage(summaryText);
-                                console.log(`✅ Live call summary sent for ${summary.contactName}`);
-                            }
-                        } catch (summaryError) {
-                            console.error('❌ Error getting call summary:', summaryError);
-                        }
-                    }, 60000); // Check after 1 minute
-                    
-                } else if (result.needsPhoneNumber) {
-                    // Store the pending request and ask for phone number
-                    const requestId = `req_${Date.now()}`;
-                    pendingCallRequests.set(requestId, {
-                        contactName: result.contactName,
-                        message: result.message,
-                        timestamp: Date.now(),
-                        userId: senderId
-                    });
-                    
-                    await message.reply(`📞 Contact "${result.contactName}" not found in WhatsApp contacts.\n\nPlease reply with their phone number (with country code) and I'll make the call.\n\nExample: +1234567890\n\n⏰ This request expires in 5 minutes.`);
-                    
-                    // Clean up expired request after 5 minutes
-                    setTimeout(() => {
-                        pendingCallRequests.delete(requestId);
-                    }, 5 * 60 * 1000);
-                    
-                } else {
-                    await message.reply(`❌ Calling failed: ${result.error}`);
-                }
-                
-                return; // Exit early to prevent other command processing
-            }
-        }
-        
-        // MANUAL PHONE NUMBER INPUT - Handle pending call requests
-        if (pendingCallRequests.size > 0) {
-            const senderId = message.author || message.from;
-            
-            // Check if sender is the owner and message looks like a phone number
-            if (senderId === '917428233446@c.us' && /^[+]?[\d\s\-()]+$/.test(message.body.trim())) {
-                const phoneNumber = message.body.trim();
-                
-                // Find the most recent pending request for this user
-                let latestRequest = null;
-                let latestRequestId = null;
-                
-                for (const [requestId, request] of pendingCallRequests.entries()) {
-                    if (request.userId === senderId) {
-                        if (!latestRequest || request.timestamp > latestRequest.timestamp) {
-                            latestRequest = request;
-                            latestRequestId = requestId;
-                        }
-                    }
-                }
-                
-                if (latestRequest) {
-                    console.log(`📱 Processing manual phone number: ${phoneNumber} for ${latestRequest.contactName}`);
-                    
-                    const chat = await message.getChat();
-                    await chat.sendStateTyping();
-                    
-                    const result = await callingAgent.handleManualPhoneNumber(
-                        phoneNumber, 
-                        latestRequest.contactName, 
-                        latestRequest.message
-                    );
-                    
-                    // Clean up the request
-                    pendingCallRequests.delete(latestRequestId);
-                    
-                    if (result.success) {
-                        await message.reply(`📞 Calling ${result.contactName} (${result.phoneNumber})...\n\n🗣️ Message to deliver: "${result.messageDelivered}"\n\n⏱️ I'll update you with the call summary once it's completed.`);
-                        
-                        // Set up call summary check after a delay
-                        setTimeout(async () => {
-                            try {
-                                const summary = await callingAgent.getCallSummary(result.callId);
-                                
-                                if (!summary.error) {
-                                    let summaryText = `📞 Live Call Summary (Manual):\n\n`;
-                                    summaryText += `👤 Contact: ${summary.contactName}\n`;
-                                    summaryText += `📱 Number: ${summary.phoneNumber}\n`;
-                                    summaryText += `🗣️ Original message: "${summary.messageDelivered}"\n`;
-                                    summaryText += `📊 Status: ${summary.status}\n`;
-                                    summaryText += `⏱️ Duration: ${summary.duration} seconds\n\n`;
-                                    
-                                    if (summary.conversationSummary && summary.conversationSummary !== 'Conversation in progress...') {
-                                        summaryText += `💬 Conversation Summary:\n${summary.conversationSummary}\n\n`;
-                                    }
-                                    
-                                    if (summary.conversationHistory && summary.conversationHistory.length > 0) {
-                                        summaryText += `📝 Full Conversation:\n`;
-                                        summary.conversationHistory.forEach((msg, index) => {
-                                            const speaker = msg.role === 'user' ? summary.contactName : 'Assistant';
-                                            summaryText += `${speaker}: "${msg.content}"\n`;
-                                        });
-                                    } else {
-                                        summaryText += `📝 No conversation recorded - call may have gone to voicemail`;
-                                    }
-                                    
-                                    await chat.sendMessage(summaryText);
-                                    console.log(`✅ Manual live call summary sent for ${summary.contactName}`);
-                                }
-                            } catch (summaryError) {
-                                console.error('❌ Error getting manual call summary:', summaryError);
-                            }
-                        }, 60000); // Check after 1 minute
-                        
-                    } else {
-                        await message.reply(`❌ Failed to make call: ${result.error}`);
-                    }
-                    
-                    return; // Exit early to prevent other command processing
                 }
             }
         }
@@ -2145,8 +1970,7 @@ client.on('message_create', async message => {
         
         // HELP COMMAND
         else if (message.body === '?help') {
-            const senderId = message.author || message.from;
-            let helpMessage = `Chotu helper commands\n\n` +
+            const helpMessage = `Chotu helper commands\n\n` +
                 `👥 GROUP MANAGEMENT:\n` +
                 `   ?kick @user - Remove user from group (Admin only)\n` +
                 `   ?purge <number> - Delete recent messages (Admin only)\n` +
@@ -2178,19 +2002,6 @@ client.on('message_create', async message => {
                 `   • Searches with fuzzy matching (handles typos)\n` +
                 `   • Each group has its own document storage\n` +
                 `   • Use numbers from ?list for quick access\n`;
-            
-            // Add calling feature help for owner only
-            if (senderId === '917428233446@c.us') {
-                helpMessage += `\n📞 LIVE CALLING AGENT (Owner Only):\n` +
-                    `   Say "phone call [name] and say [message]" to make calls\n` +
-                    `   Example: "phone call mom and say i'll be 10 mins late"\n` +
-                    `   Example: "phone call john and ask about the meeting"\n` +
-                    `   • Uses WhatsApp contacts or manual phone numbers\n` +
-                    `   • REAL-TIME CONVERSATIONS - bot talks and listens like a human\n` +
-                    `   • Handles back-and-forth dialogue intelligently\n` +
-                    `   • Provides detailed conversation summaries\n` +
-                    `   • Powered by Gemini Live API + Twilio voice streaming\n`;
-            }
             
             await message.reply(helpMessage);
         }
