@@ -12,23 +12,23 @@ const genAI3 = process.env.GEMINI_API_KEY3 ? new GoogleGenerativeAI(process.env.
 
 // Model and API key rotation setup (only 2.0-flash and 2.0-flash-lite)
 const MODEL_ROTATION = [
-    { model: 'gemini-2.0-flash', client: genAI1, keyName: 'KEY1' },
-    { model: 'gemini-2.0-flash-lite', client: genAI1, keyName: 'KEY1' }
+    { model: 'gemini-2.5-flash-lite-preview-06-17', client: genAI1, keyName: 'KEY1' },
+    { model: 'gemini-2.0-flash', client: genAI1, keyName: 'KEY1' }
 ];
 
 // Add second API key models if available
 if (genAI2) {
     MODEL_ROTATION.push(
-        { model: 'gemini-2.0-flash', client: genAI2, keyName: 'KEY2' },
-        { model: 'gemini-2.0-flash-lite', client: genAI2, keyName: 'KEY2' }
+        { model: 'gemini-2.5-flash-lite-preview-06-17', client: genAI2, keyName: 'KEY2' },
+        { model: 'gemini-2.0-flash', client: genAI2, keyName: 'KEY2' }
     );
 }
 
 // Add third API key models if available
 if (genAI3) {
     MODEL_ROTATION.push(
-        { model: 'gemini-2.0-flash', client: genAI3, keyName: 'KEY3' },
-        { model: 'gemini-2.0-flash-lite', client: genAI3, keyName: 'KEY3' }
+        { model: 'gemini-2.5-flash-lite-preview-06-17', client: genAI3, keyName: 'KEY3' },
+        { model: 'gemini-2.0-flash', client: genAI3, keyName: 'KEY3' }
     );
 }
 
@@ -36,7 +36,7 @@ if (genAI3) {
 const keyCount = 1 + (genAI2 ? 1 : 0) + (genAI3 ? 1 : 0);
 const totalCombinations = MODEL_ROTATION.length;
 console.log(`🔑 API key rotation enabled - ${keyCount} keys, ${totalCombinations} model combinations available`);
-console.log(`📋 Models: gemini-2.0-flash, gemini-2.0-flash-lite (1.5-flash removed)`);
+console.log(`📋 Models: gemini-2.5-flash-lite-preview-06-17, gemini-2.0-flash (1.5-flash removed)`);
 
 if (genAI2 && genAI3) {
     console.log('🚀 Triple API key mode activated!');
