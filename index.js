@@ -3,6 +3,7 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
+const BrowserAgent = require('./browser_client');
 require('dotenv').config();
 
 // Initialize Gemini AI with model switching using multiple API keys
@@ -59,6 +60,94 @@ function switchToNextModel() {
     currentModelIndex = (currentModelIndex + 1) % MODEL_ROTATION.length;
     const current = MODEL_ROTATION[currentModelIndex];
     console.log(`🔄 Switched to: ${current.model} (${current.keyName})`);
+}
+
+// Initialize Browser Agent
+const browserAgent = new BrowserAgent();
+
+// Function to check if message contains browser keywords
+function containsBrowserKeywords(message) {
+    const text = message.toLowerCase();
+    return text.includes('browse') || text.includes('browser');
+}
+
+// Function to extract task from browser request
+function extractBrowserTask(message) {
+    let task = message;
+    
+    // Remove mention keywords
+    task = task.replace(/@chotu/gi, '').replace(/chotu/gi, '');
+    
+    // Remove browser keywords
+    task = task.replace(/browse/gi, '').replace(/browser/gi, '');
+    
+    // Clean up extra spaces
+    task = task.replace(/\s+/g, ' ').trim();
+    
+    return task;
+}
+
+// Function to parse browser agent result
+function parseBrowserResult(result) {
+    try {
+        if (!result.success) {
+            return `Browser task failed: ${result.error}`;
+        }
+        
+        const resultStr = result.output || result.result || '';
+        
+        // Try to parse as JSON first
+        try {
+            const parsed = JSON.parse(resultStr);
+            if (parsed.result) {
+                return extractContentFromAgentResult(parsed.result);
+            }
+        } catch (e) {
+            // If not JSON, try to extract from string representation
+        }
+        
+        // Extract from string representation of AgentHistoryList
+        return extractContentFromAgentResult(resultStr);
+        
+    } catch (error) {
+        console.error('❌ Error parsing browser result:', error);
+        return `Browser task completed but I had trouble parsing the result. Raw output: ${result.output || result.result || 'No output'}`;
+    }
+}
+
+// Function to extract meaningful content from AgentHistoryList result
+function extractContentFromAgentResult(resultStr) {
+    try {
+        // Look for the final extracted_content from ActionResult with is_done=True
+        const doneMatch = resultStr.match(/ActionResult\(is_done=True[^)]*extracted_content="([^"]+)"/);
+        if (doneMatch) {
+            return doneMatch[1];
+        }
+        
+        // Fallback: look for 'done' action with text
+        const doneActionMatch = resultStr.match(/'done':\s*\{\s*'text':\s*"([^"]+)"/);
+        if (doneActionMatch) {
+            return doneActionMatch[1];
+        }
+        
+        // Fallback: look for long_term_memory with "Task completed"
+        const taskCompletedMatch = resultStr.match(/long_term_memory="Task completed: True - ([^"]+)"/);
+        if (taskCompletedMatch) {
+            return taskCompletedMatch[1];
+        }
+        
+        // Final fallback: look for any extracted_content
+        const extractedMatch = resultStr.match(/extracted_content="([^"]+)"/);
+        if (extractedMatch) {
+            return extractedMatch[1];
+        }
+        
+        return "Browser task completed successfully but I couldn't extract the specific result. The task appears to have been completed.";
+        
+    } catch (error) {
+        console.error('❌ Error extracting content from agent result:', error);
+        return "Browser task completed but I had trouble extracting the result.";
+    }
 }
 
 // Bot health monitoring variables
@@ -1986,6 +2075,13 @@ client.on('message_create', async message => {
                 `   Example: ?poll -m fav food, pizza, burger, sushi\n` +
                 `   • Creates native WhatsApp poll with tap-to-vote\n` +
                 `   • Up to 12 options allowed\n\n` +
+                `🌐 WEB BROWSING:\n` +
+                `   chotu browse <task> or @chotu browser <task> - Browse the web with AI\n` +
+                `   Example: "chotu browse weather in Dubai", "@chotu browser latest news"\n` +
+                `   Example: "chotu browse find flights to Tokyo", "@chotu browser codeforces rating tsunk"\n` +
+                `   • Powered by Gemini 2.0-flash-exp with live web browsing\n` +
+                `   • Can search, extract data, take screenshots, and interact with websites\n` +
+                `   • Just mention chotu with "browse" or "browser" + your task!\n\n` +
                 `🎨 MULTIMODAL AI:\n` +
                 `   Reply to any image or PDF while mentioning chotu to analyze it!\n` +
                 `   • Ask questions: "chotu what's in this image?", "@chotu explain this meme"\n` +
@@ -2036,6 +2132,39 @@ client.on('message_create', async message => {
                 
                 const contact = await message.getContact();
                 const senderName = contact.pushname || contact.name || 'Someone';
+                
+                // Check if this is a browser request
+                if (containsBrowserKeywords(message.body)) {
+                    console.log(`🌐 Browser request detected from ${senderName}`);
+                    
+                    const browserTask = extractBrowserTask(message.body);
+                    if (!browserTask || browserTask.trim().length === 0) {
+                        await message.reply("I need a task to browse! Try something like: 'chotu browse weather in Dubai' or '@chotu browser find latest news'");
+                        return;
+                    }
+                    
+                    console.log(`🔍 Extracted browser task: "${browserTask}"`);
+                    
+                    try {
+                        // Send initial message to show we're working
+                        await message.reply(`🌐 Browsing the web for: "${browserTask}"\n⏳ Please wait...`);
+                        
+                        // Execute browser task
+                        const browserResult = await browserAgent.runTask(browserTask);
+                        
+                        // Parse and reply with result
+                        const parsedResult = parseBrowserResult(browserResult);
+                        await message.reply(`🌐 Browser Result:\n\n${parsedResult}`);
+                        
+                        console.log(`✅ Browser task completed for ${senderName}: ${browserTask}`);
+                        
+                    } catch (error) {
+                        console.error('❌ Browser task error:', error);
+                        await message.reply(`❌ Sorry, I had trouble browsing for that. Error: ${error.message}`);
+                    }
+                    
+                    return; // Don't process as regular AI response
+                }
                 
                 let aiResponse;
                 let mediaData = null;
