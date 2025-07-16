@@ -8,14 +8,21 @@ import asyncio
 import sys
 import json
 import os
+import signal
 from dotenv import load_dotenv
 from browser_use.llm import ChatGoogle
 from browser_use import Agent
+from browser_use.browser.browser import BrowserConfig
 
 # Load environment variables
 load_dotenv()
 
+# Handle SIGTERM gracefully
+def signal_handler(signum, frame):
+    print("🛑 SIGTERM received. Exiting immediately...", file=sys.stderr)
+    sys.exit(0)
 
+signal.signal(signal.SIGTERM, signal_handler)
 
 def setup_llm():
     """Setup Gemini 2.0-flash-exp model"""
@@ -25,11 +32,82 @@ def setup_llm():
     
     return ChatGoogle(model='gemini-2.0-flash')
 
+def get_browser_config(headless=True):
+    """Get browser configuration with server-friendly Chrome flags"""
+    # Chrome arguments for server environments
+    chrome_args = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-field-trial-config',
+        '--disable-ipc-flooding-protection',
+        '--disable-extensions',
+        '--disable-plugins',
+        '--disable-translate',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--disable-background-networking',
+        '--disable-software-rasterizer',
+        '--disable-features=TranslateUI',
+        '--disable-features=BlinkGenPropertyTrees',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-component-update',
+        '--disable-client-side-phishing-detection',
+        '--disable-datasaver-prompt',
+        '--disable-domain-reliability',
+        '--disable-features=AudioServiceOutOfProcess',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-hang-monitor',
+        '--disable-notifications',
+        '--disable-permissions-api',
+        '--disable-popup-blocking',
+        '--disable-print-preview',
+        '--disable-prompt-on-repost',
+        '--disable-speech-api',
+        '--disable-web-security',
+        '--memory-pressure-off',
+        '--max_old_space_size=4096',
+        '--aggressive-cache-discard',
+        '--disable-features=site-per-process'
+    ]
+    
+    if headless:
+        chrome_args.extend([
+            '--headless=new',
+            '--disable-gpu',
+            '--hide-scrollbars',
+            '--mute-audio',
+            '--disable-logging',
+            '--disable-dev-shm-usage',
+            '--remote-debugging-port=9222'
+        ])
+    
+    return BrowserConfig(
+        chrome_instance_path=None,  # Use system Chrome
+        chrome_args=chrome_args,
+        headless=headless,
+        keep_alive=False
+    )
+
 async def run_browser_task(task, start_url=None, headless=True):
     """Run a browser automation task"""
     try:
         # Setup LLM
         llm = setup_llm()
+        
+        # Get browser configuration
+        browser_config = get_browser_config(headless)
         
         # Create full task with URL if provided
         if start_url:
@@ -38,13 +116,16 @@ async def run_browser_task(task, start_url=None, headless=True):
             full_task = task
             
         print(f"🔄 Executing task: {full_task}", file=sys.stderr)
+        print(f"🎭 Browser mode: {'Headless' if headless else 'Visible'}", file=sys.stderr)
         
-        # Create and run agent with simple API
+        # Create and run agent with browser config
         agent = Agent(
             task=full_task,
             llm=llm,
+            browser_config=browser_config
         )
         
+        print(f"🚀 Starting browser session...", file=sys.stderr)
         result = await agent.run()
         
         print(f"✅ Task completed successfully", file=sys.stderr)

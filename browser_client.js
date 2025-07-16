@@ -6,11 +6,12 @@ class BrowserAgent {
     constructor(options = {}) {
         this.pythonScript = options.pythonScript || path.join(__dirname, 'browser_agent.py');
         this.pythonPath = options.pythonPath || path.join(__dirname, 'browser_env', 'bin', 'python');
-        this.timeout = options.timeout || 120000; // 2 minutes default timeout
+        this.timeout = options.timeout || 300000; // 5 minutes timeout for server environments
         
         console.log('🔗 Browser Agent Client initialized');
         console.log(`📜 Python script: ${this.pythonScript}`);
         console.log(`🐍 Python path: ${this.pythonPath}`);
+        console.log(`⏱️ Timeout: ${this.timeout / 1000} seconds`);
     }
 
     async runTask(task, options = {}) {
