@@ -5,7 +5,7 @@ require('dotenv').config();
 class BrowserAgent {
     constructor(options = {}) {
         this.pythonScript = options.pythonScript || path.join(__dirname, 'browser_agent.py');
-        this.pythonPath = options.pythonPath || 'python';
+        this.pythonPath = options.pythonPath || path.join(__dirname, 'browser_env', 'bin', 'python');
         this.timeout = options.timeout || 120000; // 2 minutes default timeout
         
         console.log('🔗 Browser Agent Client initialized');
