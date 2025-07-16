@@ -89,20 +89,33 @@ def get_browser_config(headless=True):
             '--hide-scrollbars',
             '--mute-audio',
             '--disable-logging',
-            '--disable-dev-shm-usage',
-            '--remote-debugging-port=9222'
+            '--disable-dev-shm-usage'
         ])
+    
+    # Use a unique temporary profile to avoid locking issues
+    import tempfile
+    import uuid
+    temp_profile = f"/tmp/browseruse-profile-{uuid.uuid4().hex[:8]}"
     
     return BrowserConfig(
         chrome_instance_path=None,  # Use system Chrome
         chrome_args=chrome_args,
         headless=headless,
-        keep_alive=False
+        keep_alive=False,
+        user_data_dir=temp_profile  # Use unique profile to avoid locks
     )
 
 async def run_browser_task(task, start_url=None, headless=True):
     """Run a browser automation task"""
     try:
+        # Kill any leftover Chrome processes from previous runs
+        import subprocess
+        try:
+            subprocess.run(['pkill', '-f', 'chrome'], capture_output=True, timeout=5)
+            print(f"🧹 Cleaned up any leftover Chrome processes", file=sys.stderr)
+        except:
+            pass  # Ignore errors in cleanup
+        
         # Setup LLM
         llm = setup_llm()
         
@@ -117,6 +130,7 @@ async def run_browser_task(task, start_url=None, headless=True):
             
         print(f"🔄 Executing task: {full_task}", file=sys.stderr)
         print(f"🎭 Browser mode: {'Headless' if headless else 'Visible'}", file=sys.stderr)
+        print(f"📁 Using profile: {browser_config.user_data_dir}", file=sys.stderr)
         
         # Create and run agent with browser config
         agent = Agent(
