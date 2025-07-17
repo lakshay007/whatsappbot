@@ -246,17 +246,173 @@ class MessageHandler {
         }
     }
 
-    // Natural command execution methods (simplified versions)
-    async executeKickCommand(message, username, chat) {
-        await message.reply('For safety, please use the direct ?kick command with @mention.');
+    // Natural command execution methods (full implementations)
+    async executeKickCommand(message, params, chat) {
+        if (!chat.isGroup) {
+            return message.reply('This command can only be used in a group.');
+        }
+
+        // Check admin permissions
+        const permissions = require('../utils/permissions');
+        const authorId = message.author;
+        
+        if (!permissions.canKickUser(authorId, chat)) {
+            return message.reply('You need to be a group admin to kick users.');
+        }
+
+        const botId = this.context.whatsappService.getClient().info.wid._serialized;
+        if (!permissions.botHasAdminPermissions(botId, chat)) {
+            return message.reply('I need to be an admin to do that.');
+        }
+
+        // For safety, require mentions for natural language kicks
+        if (!message.mentionedIds || message.mentionedIds.length === 0) {
+            return message.reply('For safety, please mention the user you want to kick when using natural language. Example: "kick @username"');
+        }
+
+        const userToKickId = message.mentionedIds[0];
+
+        if (userToKickId === this.constants.OWNER_ID) {
+            return message.reply("I'm not allowed to do that.");
+        }
+
+        const participantToKick = chat.participants.find(p => p.id._serialized === userToKickId);
+
+        if (!participantToKick) {
+            return message.reply("That user isn't in this group.");
+        }
+
+        if (participantToKick.isAdmin || participantToKick.isSuperAdmin) {
+            return message.reply("I can't remove another admin.");
+        }
+
+        try {
+            await chat.removeParticipants([userToKickId]);
+            await message.reply('Done.');
+            console.log(`👢 User kicked via natural language: ${userToKickId} from ${chat.name}`);
+        } catch (err) {
+            console.error('Failed to kick user via natural language:', err);
+            await message.reply('Failed to remove the user. Please check my permissions.');
+        }
     }
 
     async executePurgeCommand(message, countStr, chat) {
-        await message.reply('For safety, please use the direct ?purge command.');
+        if (!chat.isGroup) {
+            return message.reply('This command can only be used in a group.');
+        }
+
+        const permissions = require('../utils/permissions');
+        const authorId = message.author;
+
+        if (!permissions.canPurgeMessages(authorId, chat)) {
+            return message.reply('You need to be a group admin to delete messages.');
+        }
+
+        const botId = this.context.whatsappService.getClient().info.wid._serialized;
+        if (!permissions.botHasAdminPermissions(botId, chat)) {
+            return message.reply('I need to be an admin to delete messages.');
+        }
+
+        const deleteCount = parseInt(countStr);
+        if (isNaN(deleteCount) || deleteCount < 1 || deleteCount > this.constants.MAX_PURGE_COUNT) {
+            return message.reply('Please provide a valid number between 1 and 100.');
+        }
+
+        try {
+            const messages = await chat.fetchMessages({ limit: deleteCount + 10 });
+            
+            if (messages.length <= 1) {
+                return message.reply('No messages to delete.');
+            }
+
+            const purgeCommandIndex = messages.findIndex(msg => msg.id._serialized === message.id._serialized);
+            let messagesToDelete;
+            
+            if (purgeCommandIndex !== -1) {
+                const startIndex = Math.max(0, purgeCommandIndex - deleteCount);
+                messagesToDelete = messages.slice(startIndex, purgeCommandIndex);
+            } else {
+                messagesToDelete = messages.slice(1, deleteCount + 1);
+            }
+            
+            let deletedCount = 0;
+            let failedCount = 0;
+            
+            for (let i = 0; i < messagesToDelete.length; i++) {
+                const msg = messagesToDelete[i];
+                try {
+                    await msg.delete(true);
+                    deletedCount++;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } catch (deleteError) {
+                    failedCount++;
+                }
+            }
+
+            try {
+                await message.delete(true);
+            } catch (deleteError) {
+                console.error('Failed to delete command message:', deleteError);
+            }
+
+            if (deletedCount > 0) {
+                let confirmText = `Deleted ${deletedCount} messages via natural language.`;
+                if (failedCount > 0) {
+                    confirmText += ` (${failedCount} couldn't be deleted)`;
+                }
+                
+                const confirmMsg = await chat.sendMessage(confirmText);
+                
+                setTimeout(async () => {
+                    try {
+                        await confirmMsg.delete(true);
+                    } catch (error) {
+                        console.error('Failed to delete confirmation message:', error);
+                    }
+                }, 5000);
+                
+                console.log(`🗑️ Purged ${deletedCount} messages via natural language in ${chat.name}`);
+            } else {
+                await message.reply('No messages could be deleted.');
+            }
+
+        } catch (err) {
+            console.error('Failed to purge messages via natural language:', err);
+            await message.reply('Failed to delete messages. Make sure I have the necessary permissions.');
+        }
     }
 
     async executePollCommand(message, pollData, chat) {
-        await message.reply('For safety, please use the direct ?poll command.');
+        try {
+            const parts = pollData.split('|');
+            
+            if (parts.length < 3) {
+                return message.reply('Need at least a question and 2 options for a poll.');
+            }
+
+            const isMultiSelect = parts[0] === '-m';
+            const question = isMultiSelect ? parts[1] : parts[0];
+            const options = isMultiSelect ? parts.slice(2) : parts.slice(1);
+
+            if (options.length > this.constants.MAX_POLL_OPTIONS) {
+                return message.reply('Maximum 12 options allowed per poll.');
+            }
+
+            const { Poll } = require('whatsapp-web.js');
+            const pollOptions = {
+                allowMultipleAnswers: isMultiSelect
+            };
+            
+            const poll = new Poll(question, options, pollOptions);
+            await chat.sendMessage(poll);
+            
+            const pollType = isMultiSelect ? 'multi-select' : 'single-select';
+            console.log(`📊 Created ${pollType} WhatsApp poll via natural language: "${question}"`);
+            
+        } catch (error) {
+            console.error('❌ Error creating poll via natural language:', error);
+            await message.reply('Sorry, there was an error creating the poll. Try the direct ?poll command.');
+        }
     }
 
     async executeWelcomeCommand(message, username) {
@@ -265,8 +421,47 @@ class MessageHandler {
         console.log(`👋 Welcomed user via natural language: ${username}`);
     }
 
-    async executeAvatarCommand(message, username) {
-        await message.reply('For safety, please use the direct ?avatar command with @mention.');
+    async executeAvatarCommand(message, params) {
+        // For safety, require mentions for natural language avatar requests
+        if (!message.mentionedIds || message.mentionedIds.length === 0) {
+            return message.reply('For safety, please mention the user whose avatar you want when using natural language. Example: "show @username avatar"');
+        }
+
+        const targetUserId = message.mentionedIds[0];
+        
+        try {
+            const contact = await this.context.whatsappService.getClient().getContactById(targetUserId);
+            const contactName = contact.pushname || contact.name || contact.number || 'User';
+            
+            console.log(`🖼️ Fetching avatar for ${contactName} via natural language`);
+            
+            const profilePicUrl = await contact.getProfilePicUrl();
+            
+            if (!profilePicUrl) {
+                return message.reply(`${contactName} doesn't have a profile picture or it's not visible to me.`);
+            }
+            
+            const { MessageMedia } = require('whatsapp-web.js');
+            const media = await MessageMedia.fromUrl(profilePicUrl);
+            const chat = await message.getChat();
+            
+            await chat.sendMessage(media, {
+                caption: `${contactName}'s profile picture`
+            });
+            
+            console.log(`📸 Sent avatar for ${contactName} via natural language`);
+            
+        } catch (error) {
+            console.error('❌ Error fetching avatar via natural language:', error);
+            
+            if (error.message.includes('contact not found')) {
+                await message.reply("I couldn't find that user. Make sure they're in this group.");
+            } else if (error.message.includes('profile pic')) {
+                await message.reply("This user's profile picture is not accessible or they don't have one.");
+            } else {
+                await message.reply("Failed to get the avatar. The user might have privacy settings enabled.");
+            }
+        }
     }
 
     // Check if message is owner number selection for master search
