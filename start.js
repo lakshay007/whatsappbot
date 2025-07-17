@@ -3,7 +3,7 @@ const { spawn } = require('child_process');
 function startBot() {
     console.log('🚀 Starting WhatsApp bot...');
     
-    const bot = spawn('node', ['index.js'], {
+    const bot = spawn('node', ['src/app.js'], {
         stdio: 'inherit',
         cwd: __dirname
     });
