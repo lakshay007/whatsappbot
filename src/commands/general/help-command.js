@@ -9,7 +9,17 @@ class HelpCommand extends Command {
 
     async execute(message, args, context) {
         try {
-            const helpText = context.commandRegistry.generateHelpText();
+            let helpText = context.commandRegistry.generateHelpText();
+            
+            // Add multimodal AI explanation
+            helpText += `\n\n🎨 MULTIMODAL AI:
+   Reply to any image or PDF while mentioning chotu to analyze it!
+   • Ask questions: "chotu what's in this image?", "@chotu explain this meme"
+   • Analyze PDFs: "chotu summarize this document", "@chotu what's the main point?"
+   • Read text: "chotu what does this say?"
+   • Supports: JPG, PNG, WebP, GIF images and PDF documents
+   • Works with both "chotu" and "@chotu" in your reply to the media!`;
+            
             await message.reply(helpText);
             
             console.log(`📖 Help command executed for user: ${message.author || message.from}`);

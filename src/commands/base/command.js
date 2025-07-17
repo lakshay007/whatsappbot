@@ -25,7 +25,7 @@ class Command {
     }
 
     // Permission checking
-    async checkPermissions(message, chat) {
+    async checkPermissions(message, chat, context) {
         const senderId = message.author || message.from;
         const botId = context.whatsappService.getClient().info.wid._serialized;
 

@@ -95,7 +95,7 @@ class MessageHandler {
         console.log(`📝 Message: ${message.body}`);
         
         const chat = await message.getChat();
-        await this.context.sendTyping(chat);
+        await chat.sendStateTyping();
         
         const contact = await message.getContact();
         const senderName = contact.pushname || contact.name || 'Someone';

@@ -141,7 +141,6 @@ class CommandRegistry {
             { name: 'Admin', emoji: '👥', title: 'GROUP MANAGEMENT' },
             { name: 'General', emoji: '🖼️', title: 'USER INFO' },
             { name: 'Polls', emoji: '📊', title: 'POLLS' },
-            { name: 'Multimodal', emoji: '🎨', title: 'MULTIMODAL AI' },
             { name: 'Documents', emoji: '📄', title: 'DOCUMENTS' }
         ];
 

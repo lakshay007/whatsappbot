@@ -9,8 +9,7 @@ const RecoveryService = require('./services/health/recovery-service');
 
 // Commands
 const CommandRegistry = require('./commands/base/registry');
-const HelpCommand = require('./commands/general/help-command');
-const StatusCommand = require('./commands/general/status-command');
+const commands = require('./commands');
 
 // Handlers
 const MessageHandler = require('./handlers/message-handler');
@@ -80,14 +79,10 @@ class WhatsAppBot {
     registerCommands() {
         console.log('📝 Registering commands...');
         
-        // Register basic commands
-        this.commandRegistry.register(new HelpCommand());
-        this.commandRegistry.register(new StatusCommand());
-        
-        // TODO: Register additional commands as they're created
-        // this.commandRegistry.register(new KickCommand());
-        // this.commandRegistry.register(new PurgeCommand());
-        // etc.
+        // Register all commands
+        Object.values(commands).forEach(CommandClass => {
+            this.commandRegistry.register(new CommandClass());
+        });
         
         console.log(`✅ Registered ${this.commandRegistry.getStats().totalCommands} commands`);
     }
