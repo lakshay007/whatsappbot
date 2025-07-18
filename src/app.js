@@ -22,11 +22,14 @@ class WhatsAppBot {
         // Initialize services
         this.initializeServices();
         
-        // Setup context for dependency injection
+        // Setup context for dependency injection (without messageHandler first)
         this.context = this.createContext();
         
         // Initialize handlers
         this.messageHandler = new MessageHandler(this.context);
+        
+        // Update context with messageHandler reference
+        this.context.messageHandler = this.messageHandler;
         
         // Setup event handlers
         this.setupEventHandlers();
