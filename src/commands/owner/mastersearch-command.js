@@ -3,7 +3,7 @@ const { MessageMedia } = require('whatsapp-web.js');
 
 class MasterSearchCommand extends Command {
     constructor() {
-        super('mastersearch', 'Search across all group folders (Owner only)', {
+        super('mastersearch', 'Search across all folders (Owner only)', {
             category: 'Owner',
             ownerOnly: true,
             hidden: true
@@ -15,7 +15,7 @@ class MasterSearchCommand extends Command {
             const chat = await message.getChat();
             
             if (args.length === 0) {
-                return message.reply('Usage: ?mastersearch <document name>\nExample: ?mastersearch meeting notes\n\nThis searches across ALL group folders for the file.');
+                return message.reply('Usage: ?mastersearch <document name>\nExample: ?mastersearch meeting notes\n\nThis searches across all folders for the file.');
             }
             
             const searchQuery = args.join(' ');
@@ -24,7 +24,7 @@ class MasterSearchCommand extends Command {
             const searchResults = context.documentService.masterSearchDocuments(searchQuery);
             
             if (searchResults.length === 0) {
-                await message.reply(`🔍 No documents found for "${searchQuery}" across all groups.\n\nSearched across all group folders.`);
+                await message.reply(`🔍 No documents found for "${searchQuery}".\n\nSearched across all folders.`);
                 return;
             }
             
@@ -34,19 +34,19 @@ class MasterSearchCommand extends Command {
                 
                 // Check file size (WhatsApp limit)
                 if (doc.size > this.constants.MAX_FILE_SIZE) {
-                    await message.reply(`🔍 Found "${doc.filename}" in group "${doc.groupDisplayName}" but it's too large to send (${Math.round(doc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
+                    await message.reply(`🔍 Found "${doc.filename}" but it's too large to send (${Math.round(doc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
                     return;
                 }
                 
-                console.log(`📤 Sending document from master search: ${doc.filename} from ${doc.groupDisplayName} (${Math.round(doc.size / 1024)}KB)`);
+                console.log(`📤 Sending document from master search: ${doc.filename} (${Math.round(doc.size / 1024)}KB)`);
                 
                 // Send the document
                 const media = MessageMedia.fromFilePath(doc.path);
                 await chat.sendMessage(media, {
-                    caption: `🔍 ${doc.filename}\n📁 From: ${doc.groupDisplayName}`
+                    caption: `🔍 ${doc.filename}`
                 });
                 
-                console.log(`✅ Master search document sent: ${doc.filename} from ${doc.groupDisplayName}`);
+                console.log(`✅ Master search document sent: ${doc.filename}`);
                 
             } else {
                 // Multiple results - show list with group information and store for number selection
@@ -58,11 +58,11 @@ class MasterSearchCommand extends Command {
                 
                 context.messageHandler.setOwnerMasterSearchResults(masterSearchResults);
                 
-                let resultText = `🔍 Found ${searchResults.length} documents for "${searchQuery}" across all groups:\n\n`;
+                let resultText = `🔍 Found ${searchResults.length} documents for "${searchQuery}":\n\n`;
                 
                 searchResults.slice(0, 10).forEach((doc, index) => {
                     const sizeKB = Math.round(doc.size / 1024);
-                    resultText += `${index + 1}. ${doc.filename} (${sizeKB}KB)\n   📁 ${doc.groupDisplayName}\n\n`;
+                    resultText += `${index + 1}. ${doc.filename} (${sizeKB}KB)\n\n`;
                 });
                 
                 if (searchResults.length > 10) {
@@ -80,7 +80,7 @@ class MasterSearchCommand extends Command {
     }
 
     getHelpText() {
-        return `${this.getUsage()} <name> - Search across all group folders (Owner only)`;
+        return `${this.getUsage()} <name> - Search across all folders (Owner only)`;
     }
 }
 

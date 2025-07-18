@@ -498,21 +498,21 @@ class MessageHandler {
             
             // Check file size (WhatsApp limit)
             if (selectedDoc.size > this.constants.MAX_FILE_SIZE) {
-                await message.reply(`🔍 "${selectedDoc.filename}" from group "${selectedDoc.groupDisplayName}" is too large to send (${Math.round(selectedDoc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
+                await message.reply(`🔍 "${selectedDoc.filename}" is too large to send (${Math.round(selectedDoc.size / 1024 / 1024)}MB). WhatsApp has file size limits.`);
                 return;
             }
             
-            console.log(`📤 Sending selected document from master search: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName}`);
+            console.log(`📤 Sending selected document from master search: ${selectedDoc.filename}`);
             
             // Send the document
             const { MessageMedia } = require('whatsapp-web.js');
             const media = MessageMedia.fromFilePath(selectedDoc.path);
             
             await chat.sendMessage(media, {
-                caption: `🔍 ${selectedDoc.filename}\n📁 From: ${selectedDoc.groupDisplayName}\n🔢 Selection ${selectedNumber} from "${this.ownerLastMasterSearch.query}"`
+                caption: `🔍 ${selectedDoc.filename}\n🔢 Selection ${selectedNumber} from "${this.ownerLastMasterSearch.query}"`
             });
             
-            console.log(`✅ Selected master search document sent: ${selectedDoc.filename} from ${selectedDoc.groupDisplayName}`);
+            console.log(`✅ Selected master search document sent: ${selectedDoc.filename}`);
             
             // Clear the search results after successful selection
             this.ownerLastMasterSearch = null;

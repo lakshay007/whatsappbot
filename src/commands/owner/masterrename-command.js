@@ -67,7 +67,7 @@ class MasterRenameCommand extends Command {
             // Check if new name already exists in the same group folder
             const newFilePath = path.join(selectedDoc.groupPath, newName);
             if (FileUtils.fileExists(newFilePath)) {
-                await message.reply(`📝 A file named "${newName}" already exists in group "${selectedDoc.groupDisplayName}". Choose a different name.`);
+                await message.reply(`📝 A file named "${newName}" already exists. Choose a different name.`);
                 return;
             }
             
@@ -75,8 +75,8 @@ class MasterRenameCommand extends Command {
             const success = FileUtils.renameFile(selectedDoc.path, newFilePath);
             
             if (success) {
-                console.log(`📝 Master renamed: ${selectedDoc.filename} → ${newName} in ${selectedDoc.groupDisplayName} by owner`);
-                await message.reply(`📝 Successfully renamed "${selectedDoc.filename}" to "${newName}" in group "${selectedDoc.groupDisplayName}"`);
+                console.log(`📝 Master renamed: ${selectedDoc.filename} → ${newName} by owner`);
+                await message.reply(`📝 Successfully renamed "${selectedDoc.filename}" to "${newName}"`);
                 
                 // Update the search results with the new filename
                 ownerLastMasterSearch.results[selectedNumber - 1].filename = newName;
