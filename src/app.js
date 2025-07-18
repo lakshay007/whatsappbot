@@ -6,6 +6,7 @@ const DocumentStorageService = require('./services/documents/storage-service');
 const WhatsAppClientService = require('./services/whatsapp/client-service');
 const HealthMonitorService = require('./services/health/monitor-service');
 const RecoveryService = require('./services/health/recovery-service');
+const BrowserAgentService = require('./services/browser/browser-agent-service');
 
 // Commands
 const CommandRegistry = require('./commands/base/registry');
@@ -47,6 +48,9 @@ class WhatsAppBot {
         // WhatsApp Service
         this.whatsappService = new WhatsAppClientService();
         
+        // Browser Agent Service
+        this.browserAgentService = new BrowserAgentService();
+        
         // Health Monitoring
         this.healthMonitor = new HealthMonitorService();
         this.recoveryService = new RecoveryService();
@@ -63,6 +67,7 @@ class WhatsAppBot {
             aiService: this.aiService,
             documentService: this.documentService,
             whatsappService: this.whatsappService,
+            browserAgentService: this.browserAgentService,
             healthMonitor: this.healthMonitor,
             recoveryService: this.recoveryService,
             commandRegistry: this.commandRegistry,
@@ -157,6 +162,7 @@ class WhatsAppBot {
         console.log(`🔑 AI Models: ${this.aiService.modelRotation.getTotalModelCount()} combinations`);
         console.log(`📝 Commands: ${this.commandRegistry.getStats().totalCommands} registered`);
         console.log(`📄 Document Storage: ${this.constants.DOCUMENTS_DIR}/ folder`);
+        console.log(`🌐 Browser Agent: ${this.browserAgentService.getStatus().hasValidConfig ? 'Ready' : 'Not configured'}`);
         console.log(`⚡ Health Check: Every ${this.constants.HEALTH_CHECK_INTERVAL / 1000}s`);
         console.log(`💓 Keep-Alive: Every ${this.constants.KEEP_ALIVE_INTERVAL / 1000}s`);
         console.log(`🔄 Max Reconnects: ${this.constants.MAX_RECONNECT_ATTEMPTS}`);
@@ -170,6 +176,11 @@ class WhatsAppBot {
         this.healthMonitor.stopMonitoring();
         this.whatsappService.destroy();
         
+        // Close browser agent service
+        if (this.browserAgentService) {
+            await this.browserAgentService.close();
+        }
+        
         console.log('✅ Bot shutdown complete');
     }
 
@@ -181,7 +192,8 @@ class WhatsAppBot {
             health: this.healthMonitor.getStatusReport(),
             recovery: this.recoveryService.getStatusReport(),
             commands: this.commandRegistry.getStats(),
-            aiModel: this.aiService.modelRotation.getCurrentModelInfo()
+            aiModel: this.aiService.modelRotation.getCurrentModelInfo(),
+            browserAgent: this.browserAgentService.getStatus()
         };
     }
 }

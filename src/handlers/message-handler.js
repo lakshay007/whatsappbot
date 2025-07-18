@@ -43,6 +43,12 @@ class MessageHandler {
             const replyCheck = await this.context.whatsappService.isReplyToBot(message);
             const mentionCheck = await this.context.whatsappService.isMentioned(message);
 
+            // Check for browse requests with chotu mention
+            if (this.isBrowseRequest(message)) {
+                await this.handleBrowseRequest(message);
+                return;
+            }
+
             if (replyCheck.isReply || mentionCheck) {
                 await this.handleBotInteraction(message, replyCheck, mentionCheck);
                 return;
@@ -542,6 +548,132 @@ class MessageHandler {
     // Get owner master search results
     getOwnerMasterSearchResults() {
         return this.ownerLastMasterSearch;
+    }
+
+    // Check if message is a browse request
+    isBrowseRequest(message) {
+        if (!message.body || typeof message.body !== 'string') {
+            return false;
+        }
+
+        const messageBody = message.body.toLowerCase();
+        
+        // Check if message contains "chotu" and "browse"
+        const containsChotu = messageBody.includes('chotu') || messageBody.includes('@chotu');
+        const containsBrowse = messageBody.includes('browse');
+        
+        return containsChotu && containsBrowse;
+    }
+
+    // Handle browse request
+    async handleBrowseRequest(message) {
+        try {
+            console.log(`🌐 Browse request detected from: ${message.author || message.from}`);
+            console.log(`📝 Message: ${message.body}`);
+            
+            const chat = await message.getChat();
+            const contact = await message.getContact();
+            const senderName = contact.pushname || contact.name || 'Someone';
+            
+            // Extract browse instruction from message
+            const instruction = this.extractBrowseInstruction(message.body);
+            
+            if (!instruction) {
+                await message.reply('🌐 I see you want me to browse something! Please tell me what you want me to do.\n\nExample: "chotu browse latest news from hackernews"');
+                return;
+            }
+            
+            // Check if browser agent service is available
+            if (!this.context.browserAgentService) {
+                await message.reply('❌ Browser agent service is not available. Please check the configuration.');
+                return;
+            }
+            
+            // Show typing indicator
+            await this.context.sendTyping(chat);
+            
+            // Show loading message
+            const loadingMessage = await message.reply('🌐 Starting browser agent...\n⏳ This may take a moment...');
+            
+            console.log(`🔍 Executing browse instruction: "${instruction}"`);
+            
+            // Execute the browse instruction
+            const result = await this.context.browserAgentService.browse(instruction);
+            
+            // Delete the loading message
+            try {
+                await loadingMessage.delete();
+            } catch (deleteError) {
+                console.error('❌ Error deleting loading message:', deleteError);
+            }
+            
+            if (result.success) {
+                // Format the response
+                const responseMessage = `🌐 **Browse Results for ${senderName}:**\n\n${result.message}`;
+                
+                // Check message length and split if needed
+                if (responseMessage.length > 4000) {
+                    const chunks = this.splitMessage(responseMessage, 4000);
+                    for (const chunk of chunks) {
+                        await chat.sendMessage(chunk);
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay between chunks
+                    }
+                } else {
+                    await chat.sendMessage(responseMessage);
+                }
+                
+                console.log(`✅ Browse request completed successfully for: ${senderName}`);
+                
+            } else {
+                await message.reply(`❌ Browse failed: ${result.message}`);
+                console.log(`❌ Browse request failed for: ${senderName}`);
+            }
+            
+        } catch (error) {
+            console.error('❌ Error handling browse request:', error);
+            await message.reply(`❌ Something went wrong while browsing: ${error.message}`);
+        }
+    }
+
+    // Extract browse instruction from message
+    extractBrowseInstruction(messageBody) {
+        const lowerBody = messageBody.toLowerCase();
+        
+        // Remove "chotu" and "@chotu" mentions
+        let cleanedBody = messageBody.replace(/chotu|@chotu/gi, '').trim();
+        
+        // Remove the word "browse" and everything before it
+        const browseIndex = cleanedBody.toLowerCase().indexOf('browse');
+        if (browseIndex !== -1) {
+            cleanedBody = cleanedBody.substring(browseIndex + 6).trim();
+        }
+        
+        return cleanedBody || null;
+    }
+
+    // Split message into chunks
+    splitMessage(message, maxLength) {
+        const chunks = [];
+        let currentChunk = '';
+        
+        const lines = message.split('\n');
+        
+        for (const line of lines) {
+            if (currentChunk.length + line.length + 1 <= maxLength) {
+                currentChunk += line + '\n';
+            } else {
+                if (currentChunk.trim()) {
+                    chunks.push(currentChunk.trim());
+                }
+                currentChunk = line + '\n';
+            }
+        }
+        
+        if (currentChunk.trim()) {
+            chunks.push(currentChunk.trim());
+        }
+        
+        return chunks;
     }
 }
 

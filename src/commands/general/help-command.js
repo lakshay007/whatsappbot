@@ -18,7 +18,15 @@ class HelpCommand extends Command {
    • Analyze PDFs: "chotu summarize this document", "@chotu what's the main point?"
    • Read text: "chotu what does this say?"
    • Supports: JPG, PNG, WebP, GIF images and PDF documents
-   • Works with both "chotu" and "@chotu" in your reply to the media!`;
+   • Works with both "chotu" and "@chotu" in your reply to the media!
+
+🌐 BROWSER AGENT:
+   Mention chotu with "browse" to use AI-powered web browsing!
+   • Get latest news: "chotu browse latest tech news"
+   • Research topics: "@chotu browse information about AI"
+   • Fetch data: "chotu browse hackernews top stories"
+   • Powered by advanced AI that can navigate and interact with websites
+   • Works with both "chotu" and "@chotu" mentions!`;
             
             await message.reply(helpText);
             
