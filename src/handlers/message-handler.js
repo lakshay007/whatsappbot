@@ -47,6 +47,8 @@ class MessageHandler {
                 await this.handleOwnerNumberSelection(message);
                 return;
             }
+            
+            console.log(`🔍 No special handling for message: "${message.body}" from ${message.author || message.from}`);
 
         } catch (error) {
             console.error('❌ Error handling message:', error);
@@ -467,14 +469,22 @@ class MessageHandler {
     // Check if message is owner number selection for master search
     isOwnerNumberSelection(message) {
         const senderId = message.author || message.from;
+        const isOwner = senderId === this.constants.OWNER_ID;
+        const isNumber = message.body.match(/^\d+$/);
+        const hasSearchResults = !!this.ownerLastMasterSearch;
+        
+        console.log(`🔍 Owner number selection check: owner=${isOwner}, number=${isNumber}, hasResults=${hasSearchResults}, body="${message.body}"`);
+        
         return (
-            senderId === this.constants.OWNER_ID &&
-            message.body.match(/^\d+$/) &&
-            this.ownerLastMasterSearch
+            isOwner &&
+            isNumber &&
+            hasSearchResults
         );
     }
 
     async handleOwnerNumberSelection(message) {
+        console.log(`🔍 Handling owner number selection: "${message.body}"`);
+        
         const chat = await message.getChat();
         
         // Check if the search results are still valid (within timeout)
@@ -526,6 +536,7 @@ class MessageHandler {
     // Set owner master search results
     setOwnerMasterSearchResults(results) {
         this.ownerLastMasterSearch = results;
+        console.log(`🔍 Owner master search results stored: ${results ? `${results.results.length} results for "${results.query}"` : 'null'}`);
     }
 
     // Get owner master search results
