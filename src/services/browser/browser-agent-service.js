@@ -4,7 +4,6 @@ const path = require('path');
 class BrowserAgentService {
     constructor() {
         this.constants = config.getConstants();
-        this.browserWrapper = null;
         this.isInitialized = false;
     }
 
@@ -14,22 +13,15 @@ class BrowserAgentService {
         try {
             console.log('🌐 Initializing browser agent service...');
             
-            // Validate required environment variables
-            if (!process.env.GEMINI_API_KEY) {
-                throw new Error('GEMINI_API_KEY is required for browser agent');
+            // Validate required environment variables (use same as bbheadless)
+            if (!process.env.GOOGLE_API_KEY) {
+                throw new Error('GOOGLE_API_KEY is required for browser agent');
             }
             
             if (!process.env.BROWSERBASE_API_KEY || !process.env.BROWSERBASE_PROJECT_ID) {
                 throw new Error('BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID are required for browser agent');
             }
 
-            // Use dynamic import to load the ES module wrapper
-            const wrapperPath = path.join(__dirname, 'browser-wrapper.mjs');
-            const { default: BrowserWrapper } = await import(wrapperPath);
-            
-            this.browserWrapper = new BrowserWrapper();
-            await this.browserWrapper.initialize();
-            
             this.isInitialized = true;
             console.log('✅ Browser agent service initialized');
             
@@ -47,7 +39,11 @@ class BrowserAgentService {
 
             console.log(`🔍 Executing browse instruction: "${instruction}"`);
             
-            const result = await this.browserWrapper.browse(instruction, maxSteps);
+            // Use dynamic import to load the ES module executor
+            const executorPath = path.join(__dirname, 'browser-executor.mjs');
+            const { executeBrowseInstruction } = await import(executorPath);
+            
+            const result = await executeBrowseInstruction(instruction, maxSteps);
             
             return result;
             
@@ -63,24 +59,15 @@ class BrowserAgentService {
     }
 
     async close() {
-        if (this.browserWrapper) {
-            try {
-                await this.browserWrapper.close();
-                console.log('🔒 Browser agent service closed');
-            } catch (error) {
-                console.error('❌ Error closing browser agent service:', error);
-            }
-        }
+        // Each browse execution handles its own cleanup
         this.isInitialized = false;
+        console.log('🔒 Browser agent service closed');
     }
 
     getStatus() {
-        if (this.browserWrapper) {
-            return this.browserWrapper.getStatus();
-        }
         return {
             isInitialized: this.isInitialized,
-            hasValidConfig: !!(process.env.GEMINI_API_KEY && process.env.BROWSERBASE_API_KEY && process.env.BROWSERBASE_PROJECT_ID)
+            hasValidConfig: !!(process.env.GOOGLE_API_KEY && process.env.BROWSERBASE_API_KEY && process.env.BROWSERBASE_PROJECT_ID)
         };
     }
 }
