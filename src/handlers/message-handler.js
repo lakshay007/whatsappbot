@@ -33,18 +33,18 @@ class MessageHandler {
                 return;
             }
 
+            // Handle owner-specific functionality (master search number selection) - CHECK BEFORE REPLIES
+            if (this.isOwnerNumberSelection(message)) {
+                await this.handleOwnerNumberSelection(message);
+                return;
+            }
+
             // Check for replies to bot or mentions
             const replyCheck = await this.context.whatsappService.isReplyToBot(message);
             const mentionCheck = await this.context.whatsappService.isMentioned(message);
 
             if (replyCheck.isReply || mentionCheck) {
                 await this.handleBotInteraction(message, replyCheck, mentionCheck);
-                return;
-            }
-
-            // Handle owner-specific functionality (master search number selection)
-            if (this.isOwnerNumberSelection(message)) {
-                await this.handleOwnerNumberSelection(message);
                 return;
             }
             
