@@ -48,7 +48,7 @@ class MessageHandler {
                 return;
             }
             
-            console.log(`🔍 No special handling for message: "${message.body}" from ${message.author || message.from}`);
+            
 
         } catch (error) {
             console.error('❌ Error handling message:', error);
@@ -479,7 +479,7 @@ class MessageHandler {
         const isNumber = message.body.match(/^\d+$/);
         const hasSearchResults = !!this.ownerLastMasterSearch;
         
-        console.log(`🔍 Owner number selection check: owner=${isOwner}, number=${isNumber}, hasResults=${hasSearchResults}, body="${message.body}"`);
+        
         
         return (
             isOwner &&

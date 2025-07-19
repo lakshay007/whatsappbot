@@ -112,18 +112,47 @@ class BrowseCommand extends Command {
                     if (code === 0) {
                         // Parse the result from stdout
                         try {
-                            // Look for the result message in the output
-                            const resultMatch = stdout.match(/⤷ Result:\s*\n([\s\S]*?)(?:\n\n|$)/);
+                            console.log('🔍 Browser agent raw output:', stdout);
+                            
                             let resultMessage = 'Browser agent completed successfully';
                             
-                            if (resultMatch) {
-                                const jsonStr = resultMatch[1].trim();
-                                try {
-                                    const result = JSON.parse(jsonStr);
-                                    resultMessage = result.message || resultMessage;
-                                } catch (parseError) {
-                                    // If JSON parsing fails, use the raw text
-                                    resultMessage = resultMatch[1].trim();
+                            // Look for the clean message that appears after the JSON result
+                            // The pattern seems to be: JSON output, then a clean message line at the end
+                            const lines = stdout.split('\n');
+                            let foundCleanMessage = false;
+                            
+                            // Look for the last substantial line that's not JSON or logging
+                            for (let i = lines.length - 1; i >= 0; i--) {
+                                const line = lines[i].trim();
+                                if (line && 
+                                    line.length > 20 && // Substantial content
+                                    !line.startsWith('{') && 
+                                    !line.endsWith('}') &&
+                                    !line.includes('"') &&
+                                    !line.includes('✓') &&
+                                    !line.includes('⤷') &&
+                                    !line.includes('console.log') &&
+                                    (line.includes('latest') || line.includes('news') || line.includes('includes') || line.length > 50)) {
+                                    resultMessage = line;
+                                    foundCleanMessage = true;
+                                    console.log('✅ Found clean message:', resultMessage);
+                                    break;
+                                }
+                            }
+                            
+                            if (!foundCleanMessage) {
+                                // Fallback: try to extract from JSON
+                                const resultMatch = stdout.match(/⤷ Result:\s*\n([\s\S]*?)(?:\n[A-Za-z]|$)/);
+                                if (resultMatch) {
+                                    const jsonStr = resultMatch[1].trim();
+                                    try {
+                                        const result = JSON.parse(jsonStr);
+                                        resultMessage = result.message || resultMessage;
+                                        console.log('✅ Extracted from JSON:', resultMessage);
+                                    } catch (parseError) {
+                                        console.log('❌ JSON parse failed, using raw text');
+                                        resultMessage = resultMatch[1].trim();
+                                    }
                                 }
                             }
 
