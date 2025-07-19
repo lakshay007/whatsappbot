@@ -116,53 +116,52 @@ class BrowseCommand extends Command {
                             
                             let resultMessage = 'Browser agent completed successfully';
                             
-                            // Look for the clean message that appears after the JSON result
-                            // The pattern seems to be: JSON output, then a clean message line at the end
-                            const lines = stdout.split('\n');
-                            let foundCleanMessage = false;
+                            // Look for everything after the JSON ends (after "completed": true })
+                            const jsonEndPattern = /"completed":\s*true\s*}\s*\n/;
+                            const match = stdout.match(jsonEndPattern);
                             
-                            // Look for the last substantial line that's not JSON or logging
-                            for (let i = lines.length - 1; i >= 0; i--) {
-                                const line = lines[i].trim();
-                                if (line && 
-                                    line.length > 50 && // Must be substantial content
-                                    !line.startsWith('{') && 
-                                    !line.endsWith('}') &&
-                                    !line.includes('"') &&
-                                    !line.includes('✓') &&
-                                    !line.includes('⤷') &&
-                                    !line.includes('INFO') &&
-                                    !line.includes('ERROR') &&
-                                    !line.includes('WARN') &&
-                                    !line.includes('[32m') && // ANSI color codes
-                                    !line.includes('[39m') &&
-                                    !line.includes('[36m') &&
-                                    !line.includes('extraction completed') &&
-                                    !line.includes('console.log') &&
-                                    !line.match(/^\[\d{4}-\d{2}-\d{2}/) && // Date timestamp pattern
-                                    (line.includes('latest') || line.includes('news') || line.includes('weather') || line.includes('search') || line.includes(':'))) {
-                                    resultMessage = line;
-                                    foundCleanMessage = true;
-                                    console.log('✅ Found clean message:', resultMessage);
-                                    break;
-                                }
-                            }
-                            
-                            if (!foundCleanMessage) {
-                                // Fallback: try to extract from JSON
-                                const resultMatch = stdout.match(/⤷ Result:\s*\n([\s\S]*?)(?:\n[A-Za-z]|$)/);
-                                if (resultMatch) {
-                                    const jsonStr = resultMatch[1].trim();
-                                    try {
-                                        const result = JSON.parse(jsonStr);
-                                        resultMessage = result.message || resultMessage;
-                                        console.log('✅ Extracted from JSON:', resultMessage);
-                                    } catch (parseError) {
-                                        console.log('❌ JSON parse failed, using raw text');
-                                        resultMessage = resultMatch[1].trim();
-                                    }
-                                }
-                            }
+                            if (match) {
+                                // Get everything after the JSON ends
+                                const afterJson = stdout.substring(match.index + match[0].length);
+                                
+                                // Clean up the text by removing log messages and keeping only the actual content
+                                const cleanLines = afterJson
+                                    .split('\n')
+                                    .filter(line => {
+                                        const trimmed = line.trim();
+                                        return trimmed && 
+                                               !trimmed.includes('✅ Found clean message:') &&
+                                               !trimmed.includes('✅ Browse request completed') &&
+                                               !trimmed.includes('💓 Keep-alive') &&
+                                               !trimmed.includes('INFO') &&
+                                               !trimmed.includes('ERROR') &&
+                                               !trimmed.includes('[32m') &&
+                                               !trimmed.match(/^\[\d{4}-\d{2}-\d{2}/);
+                                    })
+                                    .map(line => line.trim())
+                                    .filter(line => line.length > 0);
+                                
+                                                                 if (cleanLines.length > 0) {
+                                     resultMessage = cleanLines.join('\n');
+                                     console.log('✅ Found clean message after JSON:', resultMessage);
+                                 } else {
+                                     console.log('❌ No clean content found after JSON');
+                                 }
+                             } else {
+                                 // Fallback: try to extract from JSON
+                                 const resultMatch = stdout.match(/⤷ Result:\s*\n([\s\S]*?)(?:\n[A-Za-z]|$)/);
+                                 if (resultMatch) {
+                                     const jsonStr = resultMatch[1].trim();
+                                     try {
+                                         const result = JSON.parse(jsonStr);
+                                         resultMessage = result.message || resultMessage;
+                                         console.log('✅ Extracted from JSON:', resultMessage);
+                                     } catch (parseError) {
+                                         console.log('❌ JSON parse failed, using raw text');
+                                         resultMessage = resultMatch[1].trim();
+                                     }
+                                 }
+                             }
 
                             resolve({
                                 success: true,
