@@ -125,14 +125,22 @@ class BrowseCommand extends Command {
                             for (let i = lines.length - 1; i >= 0; i--) {
                                 const line = lines[i].trim();
                                 if (line && 
-                                    line.length > 20 && // Substantial content
+                                    line.length > 50 && // Must be substantial content
                                     !line.startsWith('{') && 
                                     !line.endsWith('}') &&
                                     !line.includes('"') &&
                                     !line.includes('✓') &&
                                     !line.includes('⤷') &&
+                                    !line.includes('INFO') &&
+                                    !line.includes('ERROR') &&
+                                    !line.includes('WARN') &&
+                                    !line.includes('[32m') && // ANSI color codes
+                                    !line.includes('[39m') &&
+                                    !line.includes('[36m') &&
+                                    !line.includes('extraction completed') &&
                                     !line.includes('console.log') &&
-                                    (line.includes('latest') || line.includes('news') || line.includes('includes') || line.length > 50)) {
+                                    !line.match(/^\[\d{4}-\d{2}-\d{2}/) && // Date timestamp pattern
+                                    (line.includes('latest') || line.includes('news') || line.includes('weather') || line.includes('search') || line.includes(':'))) {
                                     resultMessage = line;
                                     foundCleanMessage = true;
                                     console.log('✅ Found clean message:', resultMessage);
