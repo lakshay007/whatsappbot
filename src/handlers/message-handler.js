@@ -102,6 +102,12 @@ class MessageHandler {
         const contact = await message.getContact();
         const senderName = contact.pushname || contact.name || 'Someone';
         
+        // Check if this is a browse request
+        if (this.isBrowseRequest(message.body)) {
+            await this.handleBrowseRequest(message, message.body);
+            return;
+        }
+        
         let aiResponse;
         let mediaData = null;
         
@@ -542,6 +548,65 @@ class MessageHandler {
     // Get owner master search results
     getOwnerMasterSearchResults() {
         return this.ownerLastMasterSearch;
+    }
+
+    // Check if message is a browse request
+    isBrowseRequest(messageBody) {
+        const lowerBody = messageBody.toLowerCase();
+        
+        // Check for patterns like "chotu browse", "@chotu browse", "browse" followed by instructions
+        const browsePatterns = [
+            /(?:^|\s)(?:@?chotu\s+)?browse\s+/i,
+            /^browse\s+/i
+        ];
+        
+        return browsePatterns.some(pattern => pattern.test(messageBody));
+    }
+
+    // Handle browse request
+    async handleBrowseRequest(message, messageBody) {
+        try {
+            console.log(`🌐 Processing browse request from: ${message.author || message.from}`);
+            
+            // Extract the instruction from the message
+            const instruction = this.extractBrowseInstruction(messageBody);
+            
+            if (!instruction) {
+                await message.reply('🌐 Please provide instructions for browsing.\n\nExample: `@chotu browse fetch latest news from hackernews`');
+                return;
+            }
+
+            await message.reply('🤖 Starting browser agent... This may take a moment.');
+            
+            // Create a browse command instance and execute it
+            const BrowseCommand = require('../commands/general/browse-command');
+            const browseCommand = new BrowseCommand();
+            const result = await browseCommand.executeBrowserAgent(instruction);
+            
+            if (result.success) {
+                await message.reply(`🌐 **Browser Agent Result:**\n\n${result.message}`);
+            } else {
+                await message.reply(`❌ **Browser Agent Error:**\n\n${result.error}`);
+            }
+            
+            console.log(`✅ Browse request completed for user: ${message.author || message.from}`);
+            
+        } catch (error) {
+            console.error('❌ Error handling browse request:', error);
+            await message.reply('Sorry, there was an error processing your browse request. Please try again.');
+        }
+    }
+
+    // Extract browse instruction from message
+    extractBrowseInstruction(messageBody) {
+        // Remove mentions and "browse" keyword to get the actual instruction
+        let instruction = messageBody
+            .replace(/@?chotu\s*/gi, '') // Remove @chotu or chotu mentions
+            .replace(/^browse\s*/i, '') // Remove starting "browse"
+            .replace(/\s+browse\s+/gi, ' ') // Remove "browse" in the middle
+            .trim();
+        
+        return instruction || null;
     }
 }
 
