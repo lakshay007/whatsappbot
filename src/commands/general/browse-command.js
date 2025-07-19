@@ -95,9 +95,9 @@ class BrowseCommand extends Command {
                     child.kill('SIGTERM');
                     resolve({
                         success: false,
-                        error: 'Browser agent execution timed out (60 seconds)'
+                        error: 'Browser agent execution timed out (120 seconds)'
                     });
-                }, 60000); // 60 seconds timeout
+                }, 120000); // 120 seconds timeout
 
                 child.on('close', (code) => {
                     clearTimeout(timeout);
