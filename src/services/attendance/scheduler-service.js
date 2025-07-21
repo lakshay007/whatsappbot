@@ -168,11 +168,8 @@ class AttendanceSchedulerService {
             console.log(`🔍 Message from: ${message.author || message.from}`);
             console.log(`🔍 Has pollUpdatedMessage: ${!!message.pollUpdatedMessage}`);
             
-            // Check different possible poll response formats
-            if (message.type === 'poll_vote') {
-                console.log(`📊 Poll vote detected!`);
-                return await this.handlePollVote(message);
-            }
+            // This is now handled by the vote_update event
+            // Keeping legacy support just in case
             
             // Check if this is a response to our attendance poll (legacy method)
             if (!message.pollUpdatedMessage) {
@@ -282,77 +279,53 @@ class AttendanceSchedulerService {
         };
     }
 
-    // Handle poll_vote type messages (might be the correct format)
-    async handlePollVote(message) {
+    // Handle vote_update events (proper way for poll responses)
+    async handleVoteUpdate(pollVote) {
         try {
-            console.log(`📊 Processing poll vote message`);
+            console.log(`📊 Processing vote update event`);
+            console.log(`📊 Vote data:`, JSON.stringify(pollVote, null, 2));
             
             // Check if this response is from the owner
-            const responderId = message.author || message.from;
-            if (responderId !== this.ownerNumber) {
-                console.log(`❌ Poll vote not from owner: ${responderId}`);
+            const voterId = pollVote.voter;
+            if (voterId !== this.ownerNumber) {
+                console.log(`❌ Vote not from owner: ${voterId}`);
                 return false;
             }
+            
+            // Get poll message ID from the vote
+            const pollMessageId = pollVote.parentMessage.id.id;
+            console.log(`🔍 Looking for poll with ID: ${pollMessageId}`);
             
             // Try to find matching poll data
-            // The poll ID might be in different places
-            let pollData = null;
-            let pollId = null;
+            let pollData = this.activePollData.get(pollMessageId);
             
-            // Try different ways to get the poll ID
-            if (message.pollUpdatedMessage?.pollCreationMessageKey?.id) {
-                pollId = message.pollUpdatedMessage.pollCreationMessageKey.id;
-            } else if (message.quotedMsgId) {
-                pollId = message.quotedMsgId;
-            } else if (message._data?.quotedStanzaID) {
-                pollId = message._data.quotedStanzaID;
-            }
-            
-            if (pollId) {
-                pollData = this.activePollData.get(pollId);
-                console.log(`🔍 Found poll ID: ${pollId}, data exists: ${!!pollData}`);
-            }
-            
-            // If we can't find by ID, try to match by timing (last few minutes)
             if (!pollData) {
-                const now = Date.now();
-                for (const [id, data] of this.activePollData.entries()) {
-                    if (now - data.timestamp < 10 * 60 * 1000) { // Within 10 minutes
-                        pollData = data;
-                        pollId = id;
-                        console.log(`🔍 Found poll by timing: ${id}`);
-                        break;
-                    }
-                }
+                // Try the serialized version
+                pollData = this.activePollData.get(pollVote.parentMessage.id._serialized);
+                console.log(`🔍 Tried serialized ID: ${pollVote.parentMessage.id._serialized}, found: ${!!pollData}`);
             }
             
             if (!pollData) {
-                console.log(`❌ No matching poll data found for response`);
+                console.log(`❌ No matching poll data found for vote`);
+                console.log(`🔍 Available poll IDs:`, Array.from(this.activePollData.keys()));
                 return false;
             }
             
-            // Extract the vote
-            let selectedAnswer = null;
-            
-            // Try different ways to get the selected option
-            if (message.selectedButtonId) {
-                selectedAnswer = message.selectedButtonId;
-            } else if (message.body) {
-                // Sometimes the answer is in the body
-                const bodyLower = message.body.toLowerCase();
-                if (bodyLower.includes('yes') || bodyLower.includes('✓')) {
-                    selectedAnswer = 'Yes';
-                } else if (bodyLower.includes('no') || bodyLower.includes('✗')) {
-                    selectedAnswer = 'No';
-                } else if (bodyLower.includes('cancel')) {
-                    selectedAnswer = 'Cancelled';
-                }
+            // Get the selected option
+            const selectedOptions = pollVote.selectedOptions;
+            if (!selectedOptions || selectedOptions.length === 0) {
+                console.log(`❌ No selected options in vote`);
+                return false;
             }
             
-            console.log(`📊 Extracted answer: ${selectedAnswer}`);
+            const selectedOptionIndex = selectedOptions[0];
+            const options = ['Yes', 'No', 'Cancelled'];
+            const selectedAnswer = options[selectedOptionIndex];
+            
+            console.log(`📊 Selected option index: ${selectedOptionIndex}, answer: ${selectedAnswer}`);
             
             if (!selectedAnswer) {
-                console.log(`❌ Could not extract poll answer from response`);
+                console.log(`❌ Invalid option index: ${selectedOptionIndex}`);
                 return false;
             }
             
@@ -378,18 +351,19 @@ class AttendanceSchedulerService {
             this.attendanceService.recordAttendance(pollData.subject, attendanceStatus, recordDate);
             
             // Send confirmation to owner
-            const chat = await message.getChat();
+            const ownerContact = await this.whatsappService.getClient().getContactById(this.ownerNumber);
+            const ownerChat = await ownerContact.getChat();
             const confirmMessage = `✅ Recorded: ${pollData.subject} (${pollData.time}) - ${attendanceStatus.toUpperCase()}`;
-            await chat.sendMessage(confirmMessage);
+            await ownerChat.sendMessage(confirmMessage);
             
             // Remove from active polls
-            this.activePollData.delete(pollId);
+            this.activePollData.delete(pollMessageId);
             
-            console.log(`✅ Successfully processed attendance: ${pollData.subject} - ${attendanceStatus}`);
+            console.log(`✅ Successfully processed attendance vote: ${pollData.subject} - ${attendanceStatus}`);
             return true;
             
         } catch (error) {
-            console.error('❌ Error handling poll vote:', error);
+            console.error('❌ Error handling vote update:', error);
             return false;
         }
     }

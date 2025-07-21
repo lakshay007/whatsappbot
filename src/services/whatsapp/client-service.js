@@ -22,7 +22,8 @@ class WhatsAppClientService {
             auth_failure: null,
             disconnected: null,
             change_state: null,
-            message_create: null
+            message_create: null,
+            vote_update: null
         };
     }
 
@@ -118,6 +119,15 @@ class WhatsAppClientService {
                 await this.eventHandlers.message_create(message);
             }
         });
+
+        this.client.on('vote_update', async (pollVote) => {
+            this.updateHeartbeat();
+            console.log('📊 Vote update received:', JSON.stringify(pollVote, null, 2));
+            
+            if (this.eventHandlers.vote_update) {
+                await this.eventHandlers.vote_update(pollVote);
+            }
+        });
     }
 
     // Event handler registration
@@ -147,6 +157,10 @@ class WhatsAppClientService {
 
     onMessageCreate(callback) {
         this.eventHandlers.message_create = callback;
+    }
+
+    onVoteUpdate(callback) {
+        this.eventHandlers.vote_update = callback;
     }
 
     // Health monitoring integration

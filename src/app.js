@@ -111,21 +111,16 @@ class WhatsAppBot {
         });
         
         this.whatsappService.onMessageCreate(async (message) => {
-            // Debug: Log all message types to understand poll responses
-            if (message.type === 'poll_vote' || message.pollUpdatedMessage || message.type.includes('poll')) {
-                console.log(`🔍 DEBUG: Message type: ${message.type}, from: ${message.author || message.from}`);
-                console.log(`🔍 DEBUG: Full message object:`, JSON.stringify(message, null, 2));
-            }
-            
-            // Handle attendance poll responses first (if applicable)
-            if (this.attendanceScheduler) {
-                const wasAttendanceResponse = await this.attendanceScheduler.handlePollResponse(message);
-                if (wasAttendanceResponse) {
-                    return; // Don't process further if it was an attendance poll response
-                }
-            }
-            
             await this.messageHandler.handleMessage(message);
+        });
+
+        this.whatsappService.onVoteUpdate(async (pollVote) => {
+            console.log('📊 Vote update event received!');
+            
+            // Handle attendance poll votes
+            if (this.attendanceScheduler) {
+                await this.attendanceScheduler.handleVoteUpdate(pollVote);
+            }
         });
         
         // Health monitoring callbacks
