@@ -128,16 +128,26 @@ class AttendanceSchedulerService {
             // Send the poll
             const sentMessage = await chat.sendMessage(poll);
             
-            // Store poll data for response tracking
-            this.activePollData.set(sentMessage.id.id, {
+            // Debug: Log message ID details
+            console.log(`📊 Sent poll message ID: ${sentMessage.id.id}`);
+            console.log(`📊 Sent poll message object:`, JSON.stringify(sentMessage.id, null, 2));
+            
+            // Store poll data for response tracking with multiple ID formats
+            const pollData = {
                 date: date.toISOString().split('T')[0],
                 subject: classInfo.subject,
                 time: classInfo.time,
                 messageId: sentMessage.id.id,
+                fullMessageId: sentMessage.id,
                 timestamp: Date.now()
-            });
-
-            console.log(`📊 Sent attendance poll: ${classInfo.subject} (${classInfo.time})`);
+            };
+            
+            // Store with different possible ID formats
+            this.activePollData.set(sentMessage.id.id, pollData);
+            this.activePollData.set(sentMessage.id._serialized, pollData);
+            
+            console.log(`📊 Stored poll data with IDs: ${sentMessage.id.id} and ${sentMessage.id._serialized}`);
+            console.log(`📊 Active polls count: ${this.activePollData.size}`);
 
         } catch (error) {
             console.error(`❌ Error sending poll for ${classInfo.subject}:`, error);
@@ -147,13 +157,30 @@ class AttendanceSchedulerService {
     // Handle poll responses
     async handlePollResponse(message) {
         try {
-            // Check if this is a response to our attendance poll
+            // Add debugging to see what kind of message we're getting
+            console.log(`🔍 Checking message type: ${message.type}`);
+            console.log(`🔍 Message from: ${message.author || message.from}`);
+            console.log(`🔍 Has pollUpdatedMessage: ${!!message.pollUpdatedMessage}`);
+            
+            // Check different possible poll response formats
+            if (message.type === 'poll_vote') {
+                console.log(`📊 Poll vote detected!`);
+                return await this.handlePollVote(message);
+            }
+            
+            // Check if this is a response to our attendance poll (legacy method)
             if (!message.pollUpdatedMessage) {
                 return false;
             }
 
+            console.log(`📊 Poll updated message detected!`);
+            console.log(`📊 Poll data:`, JSON.stringify(message.pollUpdatedMessage, null, 2));
+
             const pollId = message.pollUpdatedMessage.pollCreationMessageKey.id;
             const pollData = this.activePollData.get(pollId);
+            
+            console.log(`🔍 Looking for poll ID: ${pollId}`);
+            console.log(`🔍 Active polls:`, Array.from(this.activePollData.keys()));
             
             if (!pollData) {
                 return false; // Not our attendance poll
@@ -246,6 +273,123 @@ class AttendanceSchedulerService {
             activePolls: this.activePollData.size,
             nextCheck: this.isRunning ? 'Every minute at 6:00 PM IST' : 'Stopped'
         };
+    }
+
+    // Handle poll_vote type messages (might be the correct format)
+    async handlePollVote(message) {
+        try {
+            console.log(`📊 Processing poll vote message`);
+            
+            // Check if this response is from the owner
+            const responderId = message.author || message.from;
+            if (responderId !== this.ownerNumber) {
+                console.log(`❌ Poll vote not from owner: ${responderId}`);
+                return false;
+            }
+            
+            // Try to find matching poll data
+            // The poll ID might be in different places
+            let pollData = null;
+            let pollId = null;
+            
+            // Try different ways to get the poll ID
+            if (message.pollUpdatedMessage?.pollCreationMessageKey?.id) {
+                pollId = message.pollUpdatedMessage.pollCreationMessageKey.id;
+            } else if (message.quotedMsgId) {
+                pollId = message.quotedMsgId;
+            } else if (message._data?.quotedStanzaID) {
+                pollId = message._data.quotedStanzaID;
+            }
+            
+            if (pollId) {
+                pollData = this.activePollData.get(pollId);
+                console.log(`🔍 Found poll ID: ${pollId}, data exists: ${!!pollData}`);
+            }
+            
+            // If we can't find by ID, try to match by timing (last few minutes)
+            if (!pollData) {
+                const now = Date.now();
+                for (const [id, data] of this.activePollData.entries()) {
+                    if (now - data.timestamp < 10 * 60 * 1000) { // Within 10 minutes
+                        pollData = data;
+                        pollId = id;
+                        console.log(`🔍 Found poll by timing: ${id}`);
+                        break;
+                    }
+                }
+            }
+            
+            if (!pollData) {
+                console.log(`❌ No matching poll data found for response`);
+                return false;
+            }
+            
+            // Extract the vote
+            let selectedAnswer = null;
+            
+            // Try different ways to get the selected option
+            if (message.selectedButtonId) {
+                selectedAnswer = message.selectedButtonId;
+            } else if (message.body) {
+                // Sometimes the answer is in the body
+                const bodyLower = message.body.toLowerCase();
+                if (bodyLower.includes('yes') || bodyLower.includes('✓')) {
+                    selectedAnswer = 'Yes';
+                } else if (bodyLower.includes('no') || bodyLower.includes('✗')) {
+                    selectedAnswer = 'No';
+                } else if (bodyLower.includes('cancel')) {
+                    selectedAnswer = 'Cancelled';
+                }
+            }
+            
+            console.log(`📊 Extracted answer: ${selectedAnswer}`);
+            
+            if (!selectedAnswer) {
+                console.log(`❌ Could not extract poll answer from response`);
+                return false;
+            }
+            
+            // Map poll answer to attendance status
+            let attendanceStatus;
+            switch (selectedAnswer.toLowerCase()) {
+                case 'yes':
+                    attendanceStatus = 'attended';
+                    break;
+                case 'no':
+                    attendanceStatus = 'absent';
+                    break;
+                case 'cancelled':
+                    attendanceStatus = 'cancelled';
+                    break;
+                default:
+                    console.log(`❌ Unknown poll answer: ${selectedAnswer}`);
+                    return false;
+            }
+            
+            // Record the attendance
+            const recordDate = new Date(pollData.date);
+            this.attendanceService.recordAttendance(pollData.subject, attendanceStatus, recordDate);
+            
+            // Send confirmation to owner
+            const chat = await message.getChat();
+            const confirmMessage = `✅ Recorded: ${pollData.subject} (${pollData.time}) - ${attendanceStatus.toUpperCase()}`;
+            await chat.sendMessage(confirmMessage);
+            
+            // Remove from active polls
+            this.activePollData.delete(pollId);
+            
+            console.log(`✅ Successfully processed attendance: ${pollData.subject} - ${attendanceStatus}`);
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Error handling poll vote:', error);
+            return false;
+        }
+    }
+
+    // Get active poll IDs for debugging
+    getActivePolls() {
+        return Array.from(this.activePollData.keys());
     }
 }
 

@@ -41,6 +41,17 @@ class AttendanceCommand extends Command {
                     }
                     break;
                 
+                case 'debug':
+                    // Show debug info about active polls
+                    if (context.attendanceScheduler) {
+                        const status = context.attendanceScheduler.getStatus();
+                        const activePolls = context.attendanceScheduler.getActivePolls();
+                        await message.reply(`🔧 Debug Info:\nScheduler running: ${status.isRunning}\nActive polls: ${status.activePolls}\nPoll IDs: ${activePolls.join(', ')}`);
+                    } else {
+                        await message.reply('❌ Attendance scheduler not available.');
+                    }
+                    break;
+                
                 default:
                     await this.showHelp(message);
                     break;
