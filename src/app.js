@@ -6,6 +6,7 @@ const DocumentStorageService = require('./services/documents/storage-service');
 const WhatsAppClientService = require('./services/whatsapp/client-service');
 const HealthMonitorService = require('./services/health/monitor-service');
 const RecoveryService = require('./services/health/recovery-service');
+const AttendanceSchedulerService = require('./services/attendance/scheduler-service');
 
 // Commands
 const CommandRegistry = require('./commands/base/registry');
@@ -51,6 +52,9 @@ class WhatsAppBot {
         this.healthMonitor = new HealthMonitorService();
         this.recoveryService = new RecoveryService();
         
+        // Attendance Services (initialize after WhatsApp service)
+        this.attendanceScheduler = null;
+        
         // Command Registry
         this.commandRegistry = new CommandRegistry();
         this.registerCommands();
@@ -67,6 +71,7 @@ class WhatsAppBot {
             recoveryService: this.recoveryService,
             commandRegistry: this.commandRegistry,
             messageHandler: this.messageHandler,
+            attendanceScheduler: this.attendanceScheduler,
             
             // Utility methods
             sendTyping: async (chat) => {
@@ -96,10 +101,24 @@ class WhatsAppBot {
         // WhatsApp events
         this.whatsappService.onReady(() => {
             this.healthMonitor.startMonitoring();
+            
+            // Initialize and start attendance scheduler after WhatsApp is ready
+            this.attendanceScheduler = new AttendanceSchedulerService(this.whatsappService);
+            this.context.attendanceScheduler = this.attendanceScheduler;
+            this.attendanceScheduler.start();
+            
             this.isInitialized = true;
         });
         
         this.whatsappService.onMessageCreate(async (message) => {
+            // Handle attendance poll responses first (if applicable)
+            if (this.attendanceScheduler) {
+                const wasAttendanceResponse = await this.attendanceScheduler.handlePollResponse(message);
+                if (wasAttendanceResponse) {
+                    return; // Don't process further if it was an attendance poll response
+                }
+            }
+            
             await this.messageHandler.handleMessage(message);
         });
         
@@ -167,6 +186,9 @@ class WhatsAppBot {
     async shutdown() {
         console.log('🛑 Shutting down bot...');
         
+        if (this.attendanceScheduler) {
+            this.attendanceScheduler.stop();
+        }
         this.healthMonitor.stopMonitoring();
         this.whatsappService.destroy();
         
@@ -181,7 +203,8 @@ class WhatsAppBot {
             health: this.healthMonitor.getStatusReport(),
             recovery: this.recoveryService.getStatusReport(),
             commands: this.commandRegistry.getStats(),
-            aiModel: this.aiService.modelRotation.getCurrentModelInfo()
+            aiModel: this.aiService.modelRotation.getCurrentModelInfo(),
+            attendance: this.attendanceScheduler ? this.attendanceScheduler.getStatus() : { status: 'Not initialized' }
         };
     }
 }
