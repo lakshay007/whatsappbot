@@ -22,8 +22,7 @@ class WhatsAppClientService {
             auth_failure: null,
             disconnected: null,
             change_state: null,
-            message_create: null,
-            vote_update: null
+            message_create: null
         };
     }
 
@@ -37,10 +36,6 @@ class WhatsAppClientService {
         this.client.on('ready', () => {
             console.log('🤖 WhatsApp AI Bot is ready!');
             console.log('✅ Listening for mentions @chotu...');
-            
-            // Check if vote_update event is supported
-            console.log('🔍 Checking vote_update event support...');
-            console.log('🔍 Client events available:', Object.getOwnPropertyNames(this.client.__proto__));
             
             this.isReady = true;
             this.updateHeartbeat();
@@ -123,31 +118,6 @@ class WhatsAppClientService {
                 await this.eventHandlers.message_create(message);
             }
         });
-
-        this.client.on('vote_update', async (pollVote) => {
-            this.updateHeartbeat();
-            console.log('🔔 VOTE_UPDATE EVENT TRIGGERED!');
-            console.log('📊 Vote update received:', JSON.stringify(pollVote, null, 2));
-            
-            if (this.eventHandlers.vote_update) {
-                await this.eventHandlers.vote_update(pollVote);
-            }
-        });
-
-        // Add debugging for ALL events to see what happens when voting
-        this.client.on('message', (message) => {
-            if (message.type && (message.type.includes('poll') || message.type.includes('vote'))) {
-                console.log(`🔍 MESSAGE EVENT - Type: ${message.type}, From: ${message.author || message.from}`);
-                console.log(`🔍 MESSAGE BODY: ${message.body}`);
-            }
-        });
-
-        this.client.on('message_create', (message) => {
-            if (message.type && (message.type.includes('poll') || message.type.includes('vote'))) {
-                console.log(`🔍 MESSAGE_CREATE EVENT - Type: ${message.type}, From: ${message.author || message.from}`);
-                console.log(`🔍 MESSAGE_CREATE BODY: ${message.body}`);
-            }
-        });
     }
 
     // Event handler registration
@@ -177,10 +147,6 @@ class WhatsAppClientService {
 
     onMessageCreate(callback) {
         this.eventHandlers.message_create = callback;
-    }
-
-    onVoteUpdate(callback) {
-        this.eventHandlers.vote_update = callback;
     }
 
     // Health monitoring integration
