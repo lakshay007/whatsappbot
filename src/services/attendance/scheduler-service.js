@@ -68,7 +68,7 @@ class AttendanceSchedulerService {
         return ist;
     }
 
-    async sendDailyAttendancePoll(istDate = null) {
+    async sendDailyAttendancePoll(istDate = null, forceManual = false) {
         const date = istDate || this.convertToIST(new Date());
         
         console.log(`📊 Checking if attendance poll should be sent for ${date.toDateString()}`);
@@ -79,10 +79,14 @@ class AttendanceSchedulerService {
             return;
         }
 
-        // Check if poll was already sent today
-        if (this.attendanceService.wasPollSentToday(date)) {
+        // Check if poll was already sent today (skip this check for manual triggers)
+        if (!forceManual && this.attendanceService.wasPollSentToday(date)) {
             console.log('📅 Poll already sent today - skipping');
             return;
+        }
+
+        if (forceManual) {
+            console.log('📅 Manual poll trigger - bypassing duplicate check');
         }
 
         try {
@@ -107,8 +111,10 @@ class AttendanceSchedulerService {
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
-            // Mark that poll was sent today
-            this.attendanceService.markPollSent(date);
+            // Mark that poll was sent today (only for automatic polls, not manual testing)
+            if (!forceManual) {
+                this.attendanceService.markPollSent(date);
+            }
             
             console.log('✅ Daily attendance polls sent successfully');
 
@@ -258,7 +264,8 @@ class AttendanceSchedulerService {
         try {
             const now = new Date();
             const istTime = this.convertToIST(now);
-            await this.sendDailyAttendancePoll(istTime);
+            console.log('🔧 Manual poll trigger - forcing poll send for testing');
+            await this.sendDailyAttendancePoll(istTime, true); // Pass true to force manual send
             await message.reply('✅ Manual attendance poll triggered!');
         } catch (error) {
             console.error('❌ Error in manual poll trigger:', error);
