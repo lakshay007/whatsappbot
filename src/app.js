@@ -111,11 +111,18 @@ class WhatsAppBot {
         });
         
         this.whatsappService.onMessageCreate(async (message) => {
+            // Debug: Log when polls are answered via message events
+            if (message.type && message.type.includes('poll')) {
+                console.log(`🔍 POLL-RELATED MESSAGE: ${message.type} from ${message.author || message.from}`);
+                console.log(`🔍 POLL MESSAGE DATA:`, JSON.stringify(message, null, 2));
+            }
+            
             await this.messageHandler.handleMessage(message);
         });
 
         this.whatsappService.onVoteUpdate(async (pollVote) => {
             console.log('📊 Vote update event received!');
+            console.log('📊 Full vote object:', JSON.stringify(pollVote, null, 2));
             
             // Handle attendance poll votes
             if (this.attendanceScheduler) {

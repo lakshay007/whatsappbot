@@ -313,19 +313,33 @@ class AttendanceSchedulerService {
             
             // Get the selected option
             const selectedOptions = pollVote.selectedOptions;
+            console.log(`📊 Selected options array:`, JSON.stringify(selectedOptions, null, 2));
+            
             if (!selectedOptions || selectedOptions.length === 0) {
                 console.log(`❌ No selected options in vote`);
                 return false;
             }
             
-            const selectedOptionIndex = selectedOptions[0];
-            const options = ['Yes', 'No', 'Cancelled'];
-            const selectedAnswer = options[selectedOptionIndex];
+            // selectedOptions is an array of SelectedPollOption objects, not just indexes
+            const selectedOption = selectedOptions[0];
+            console.log(`📊 First selected option:`, JSON.stringify(selectedOption, null, 2));
             
-            console.log(`📊 Selected option index: ${selectedOptionIndex}, answer: ${selectedAnswer}`);
+            // Try to extract the option - it might have localId or name property
+            let selectedAnswer = null;
+            if (selectedOption.name) {
+                selectedAnswer = selectedOption.name;
+            } else if (selectedOption.localId !== undefined) {
+                const options = ['Yes', 'No', 'Cancelled'];
+                selectedAnswer = options[selectedOption.localId];
+            } else {
+                // Fallback: try to find by index in the array
+                selectedAnswer = selectedOptions[0];
+            }
+            
+            console.log(`📊 Extracted answer: ${selectedAnswer}`);
             
             if (!selectedAnswer) {
-                console.log(`❌ Invalid option index: ${selectedOptionIndex}`);
+                console.log(`❌ Could not extract answer from selected option`);
                 return false;
             }
             
