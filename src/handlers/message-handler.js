@@ -357,28 +357,7 @@ class MessageHandler {
                 }
             }
 
-            try {
-                await message.delete(true);
-            } catch (deleteError) {
-                console.error('Failed to delete command message:', deleteError);
-            }
-
             if (deletedCount > 0) {
-                let confirmText = `Deleted ${deletedCount} messages via natural language.`;
-                if (failedCount > 0) {
-                    confirmText += ` (${failedCount} couldn't be deleted)`;
-                }
-                
-                const confirmMsg = await chat.sendMessage(confirmText);
-                
-                setTimeout(async () => {
-                    try {
-                        await confirmMsg.delete(true);
-                    } catch (error) {
-                        console.error('Failed to delete confirmation message:', error);
-                    }
-                }, 5000);
-                
                 console.log(`🗑️ Purged ${deletedCount} messages via natural language in ${chat.name}`);
             } else {
                 await message.reply('No messages could be deleted.');

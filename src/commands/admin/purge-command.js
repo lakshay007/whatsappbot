@@ -69,32 +69,8 @@ class PurgeCommand extends Command {
                 }
             }
 
-            // Delete the purge command message itself
-            try {
-                await message.delete(true);
-            } catch (deleteError) {
-                console.error('Failed to delete purge command message:', deleteError);
-            }
-
             if (deletedCount > 0) {
                 console.log(`✅ Successfully deleted ${deletedCount} messages, ${failedCount} failed`);
-                
-                let confirmText = `Deleted ${deletedCount} messages.`;
-                if (failedCount > 0) {
-                    confirmText += ` (${failedCount} couldn't be deleted - likely too old or permission restrictions)`;
-                }
-                
-                // Send a temporary confirmation that will auto-delete
-                const confirmMsg = await chat.sendMessage(confirmText);
-                
-                // Auto-delete the confirmation message after 5 seconds
-                setTimeout(async () => {
-                    try {
-                        await confirmMsg.delete(true);
-                    } catch (error) {
-                        console.error('Failed to delete confirmation message:', error);
-                    }
-                }, 5000);
             } else {
                 await message.reply('No messages could be deleted. This usually means messages are too old or there are permission restrictions.');
             }
