@@ -196,14 +196,25 @@ class MessageHandler {
         }
         
         // Check if AI wants to execute a command
-        const executeMatch = aiResponse.match(/EXECUTE:([A-Z]+):(.+)/);
+        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z]+):(.+)/);
         if (executeMatch) {
             const [fullMatch, command, params] = executeMatch;
             const executeCommand = `EXECUTE:${command}:${params}`;
             console.log(`🎯 Detected natural command: ${executeCommand}`);
             await this.executeNaturalCommand(message, executeCommand, chat, senderName);
         } else {
-            await message.reply(aiResponse);
+            let finalResponse = aiResponse.text;
+            
+            // Check if user wants citations and sources are available
+            if (message.body.toLowerCase().includes('cite') && aiResponse.sources && aiResponse.sources.length > 0) {
+                console.log(`📚 User requested citations, adding ${aiResponse.sources.length} sources`);
+                finalResponse += '\n\n📚 *Sources:*';
+                aiResponse.sources.forEach((source, index) => {
+                    finalResponse += `\n${index + 1}. ${source.title}${source.url ? `\n   ${source.url}` : ''}`;
+                });
+            }
+            
+            await message.reply(finalResponse);
         }
         
         console.log(`✅ Replied to ${senderName}`);

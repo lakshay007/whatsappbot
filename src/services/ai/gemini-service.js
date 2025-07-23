@@ -41,7 +41,7 @@ YOUR PERSONALITY:
 - Can be playfully sarcastic when appropriate
 - Don't use emojis, keep it text-based
 - Reference specific visual/document elements when relevant
-- For Lakshay Chauhan/Lakshya/Lakshay: Always be respectful (he's the boss)
+- For Lakshay Chauhan/Lakshay/Lakshay: Always be respectful (he's the boss)
 
 RESPONSE RULES:
 - Focus on what they're specifically asking about the media
@@ -155,8 +155,14 @@ Now respond to: ${userMessage}`;
                 // Check if Google Search was used
                 this.logGroundingInfo(response);
                 
+                // Extract sources from grounding metadata
+                const sources = this.extractSources(response);
+                
                 console.log(`✅ Success with ${current.model} (${current.keyName})`);
-                return response.text().trim();
+                return {
+                    text: response.text().trim(),
+                    sources: sources
+                };
                 
             } catch (error) {
                 const current = this.modelRotation.getCurrentModelInfo();
@@ -172,7 +178,10 @@ Now respond to: ${userMessage}`;
                 // If we've tried all models, break out
                 if (attemptCount >= this.modelRotation.getTotalModelCount()) {
                     console.error(`❌ All ${this.modelRotation.getTotalModelCount()} model combinations failed!`);
-                    return "Hey! I'm having trouble thinking right now. All my AI models are having issues. Try again in a bit?";
+                    return {
+                        text: "Hey! I'm having trouble thinking right now. All my AI models are having issues. Try again in a bit?",
+                        sources: []
+                    };
                 }
                 
                 console.log(`🔄 Switching to next model (attempt ${attemptCount + 1}/${this.modelRotation.getTotalModelCount()})...`);
@@ -180,7 +189,33 @@ Now respond to: ${userMessage}`;
         }
         
         // This should never be reached, but just in case
-        return "Hey! I'm having trouble thinking right now. Try again?";
+        return {
+            text: "Hey! I'm having trouble thinking right now. Try again?",
+            sources: []
+        };
+    }
+
+    extractSources(response) {
+        const candidates = response.candidates;
+        if (candidates && candidates[0] && candidates[0].groundingMetadata) {
+            const groundingData = candidates[0].groundingMetadata;
+            
+            if (groundingData.webSearchQueries && groundingData.webSearchQueries.length > 0 &&
+                groundingData.groundingChunks && groundingData.groundingChunks.length > 0) {
+                
+                const sources = [];
+                groundingData.groundingChunks.forEach((chunk, index) => {
+                    if (chunk.web) {
+                        sources.push({
+                            title: chunk.web.title || 'Unknown source',
+                            url: chunk.web.uri || ''
+                        });
+                    }
+                });
+                return sources;
+            }
+        }
+        return [];
     }
 
     logGroundingInfo(response) {
