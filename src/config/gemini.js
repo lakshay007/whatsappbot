@@ -73,6 +73,8 @@ class GeminiConfig {
     getGroundingTool() {
         return {
             googleSearch: {},
+            urlContext: {},
+            codeExecution: {}
         };
     }
 }
