@@ -195,12 +195,11 @@ class MessageHandler {
             }
         }
         
-        // Check if AI wants to execute a command (with or without params)
-        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z_]+)(?::(.*))?/);
+        // Check if AI wants to execute a command
+        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z]+):(.+)/);
         if (executeMatch) {
-            const command = executeMatch[1];
-            const params = executeMatch[2] || '';
-            const executeCommand = `EXECUTE:${command}${params ? ':' + params : ''}`;
+            const [fullMatch, command, params] = executeMatch;
+            const executeCommand = `EXECUTE:${command}:${params}`;
             console.log(`🎯 Detected natural command: ${executeCommand}`);
             await this.executeNaturalCommand(message, executeCommand, chat, senderName);
         } else {
@@ -239,12 +238,7 @@ class MessageHandler {
 
     async executeNaturalCommand(message, aiResponse, chat, senderName) {
         try {
-            const match = aiResponse.match(/EXECUTE:([A-Z_]+)(?::(.*))?/);
-            if (!match) {
-                return;
-            }
-            const command = match[1];
-            const params = match[2] || '';
+            const [_, command, params] = aiResponse.split(':');
             
             switch(command) {
                 case 'KICK':
@@ -261,10 +255,6 @@ class MessageHandler {
                     break;
                 case 'AVATAR':
                     await this.executeAvatarCommand(message, params);
-                    break;
-                case 'SET_DP':
-                case 'SET_GROUP_DP':
-                    await this.executeSetGroupDpCommand(message, chat);
                     break;
                 default:
                     await message.reply("I understood you want to do something but I'm not sure what. Try using the direct commands!");
@@ -469,61 +459,6 @@ class MessageHandler {
             } else {
                 await message.reply("Failed to get the avatar. The user might have privacy settings enabled.");
             }
-        }
-    }
-
-    async executeSetGroupDpCommand(message, chat) {
-        if (!chat.isGroup) {
-            return message.reply('This command can only be used in a group.');
-        }
-
-        const permissions = require('../utils/permissions');
-        const authorId = message.author;
-
-        if (!permissions.canExecuteAdminCommand(authorId, chat)) {
-            return message.reply('You need to be a group admin to change the group picture.');
-        }
-
-        const botId = this.context.whatsappService.getClient().info.wid._serialized;
-        if (!permissions.botHasAdminPermissions(botId, chat)) {
-            return message.reply('I need to be an admin to do that.');
-        }
-
-        try {
-            let targetMedia = null;
-
-            if (message.hasQuotedMsg) {
-                const quotedMsg = await message.getQuotedMessage();
-                if (quotedMsg && quotedMsg.hasMedia) {
-                    const media = await quotedMsg.downloadMedia();
-                    if (media && media.mimetype && media.mimetype.startsWith('image/')) {
-                        targetMedia = media;
-                    }
-                }
-            }
-
-            // Fallback: use media from the same message (image with caption)
-            if (!targetMedia && message.hasMedia) {
-                const media = await message.downloadMedia();
-                if (media && media.mimetype && media.mimetype.startsWith('image/')) {
-                    targetMedia = media;
-                }
-            }
-
-            if (!targetMedia) {
-                return message.reply('Please reply to an image or send an image with your request to set as the group picture.');
-            }
-
-            const result = await chat.setPicture(targetMedia);
-            if (result === true) {
-                await message.reply('Done. Group picture updated.');
-                console.log(`🖼️ Group picture updated in ${chat.name}`);
-            } else {
-                await message.reply('I could not update the group picture. Please check if I have the necessary permissions.');
-            }
-        } catch (error) {
-            console.error('❌ Error setting group picture:', error);
-            await message.reply('Failed to update the group picture. The image might be invalid or permissions are missing.');
         }
     }
 
