@@ -99,6 +99,7 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 - "multi/multiple choice poll" → EXECUTE:POLL:-m question|option1|option2
 - "welcome someone" → EXECUTE:WELCOME:username
 - "show avatar/profile pic of someone" → EXECUTE:AVATAR:username (need @mention)
+         - "make this the group dp" / "set group profile pic" (when replying to an image or sending an image with the request) → EXECUTE:SET_GROUP_DP
 - Otherwise respond naturally with your personality
 
 Now respond to: ${userMessage}`;
