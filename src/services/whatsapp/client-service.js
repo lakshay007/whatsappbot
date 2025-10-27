@@ -254,10 +254,10 @@ class WhatsAppClientService {
         // Timeout for initial connection
         setTimeout(() => {
             if (!this.isReady) {
-                console.error('❌ Bot failed to initialize within 2 minutes - restarting...');
+                console.error('❌ Bot failed to initialize within 10 minutes - restarting...');
                 this.triggerRestart();
             }
-        }, 2 * 60 * 1000);
+        }, 10 * 60 * 1000);
         
         this.client.initialize();
     }
