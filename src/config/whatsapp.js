@@ -18,10 +18,14 @@ class WhatsAppConfig {
                     '--no-zygote',
                     '--disable-gpu',
                     '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-blink-features=AutomationControlled'
                 ],
-                headless: true
-            }
+                headless: true,
+                timeout: 0 // Disable timeout
+            },
+            // Add a longer timeout for the client itself
+            authTimeoutMs: 600000 // 10 minutes
         };
     }
 

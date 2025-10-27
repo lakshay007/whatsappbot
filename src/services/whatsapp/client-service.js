@@ -33,6 +33,10 @@ class WhatsAppClientService {
     }
 
     setupEventHandlers() {
+        this.client.on('loading_screen', (percent, message) => {
+            console.log(`📥 Loading: ${percent}% - ${message}`);
+        });
+
         this.client.on('ready', () => {
             console.log('🤖 WhatsApp AI Bot is ready!');
             console.log('✅ Listening for mentions @chotu...');
@@ -58,6 +62,7 @@ class WhatsAppClientService {
 
         this.client.on('authenticated', () => {
             console.log('✅ Authentication successful!');
+            console.log('⏳ Waiting for client to be ready... (this may take a few minutes)');
             this.updateHeartbeat();
             
             if (this.eventHandlers.authenticated) {
@@ -99,6 +104,7 @@ class WhatsAppClientService {
             this.updateHeartbeat();
             
             if (state === 'CONNECTED') {
+                console.log('✅ Client connected! Waiting for ready event...');
                 this.isReady = true;
             } else if (state === 'TIMEOUT' || state === 'CONFLICT') {
                 console.error('❌ Connection issue detected:', state);
@@ -250,6 +256,8 @@ class WhatsAppClientService {
         if (!this.client) {
             this.createClient();
         }
+        
+        console.log('🔧 Initializing WhatsApp client...');
         
         // Timeout for initial connection
         setTimeout(() => {
