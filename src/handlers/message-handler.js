@@ -505,10 +505,15 @@ class MessageHandler {
                 return message.reply('Invalid date format. Should be YYYY-MM-DD');
             }
 
-            // Check if the reminder is in the past
+            // Check if the reminder is in the past (using IST timezone)
             const reminderDateTime = new Date(`${date}T${time}:00`);
-            if (reminderDateTime <= new Date()) {
-                return message.reply("Can't set a reminder in the past! Try a future time.");
+            const nowUTC = new Date();
+            const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
+            const nowISTString = nowIST.toISOString().slice(0, 16).replace('T', ' ');
+            const reminderISTString = `${date} ${time}`;
+            
+            if (reminderDateTime <= nowIST) {
+                return message.reply(`Can't set a reminder in the past! Current IST time: ${nowISTString}`);
             }
 
             // Store the reminder

@@ -62,9 +62,15 @@ class ReminderStorage {
 
     getDueReminders() {
         const reminders = this.loadReminders();
-        const now = new Date();
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        const currentDate = this.formatDate(now);
+        
+        // Get current time in IST (UTC+5:30)
+        const nowUTC = new Date();
+        const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
+        
+        const currentTime = `${nowIST.getUTCHours().toString().padStart(2, '0')}:${nowIST.getUTCMinutes().toString().padStart(2, '0')}`;
+        const currentDate = this.formatDate(nowIST);
+        
+        console.log(`⏰ Checking reminders at IST: ${currentDate} ${currentTime}`);
         
         const dueReminders = [];
 
@@ -72,6 +78,7 @@ class ReminderStorage {
             const chatReminders = reminders[chatId];
             
             for (const reminder of chatReminders) {
+                console.log(`   Comparing: ${reminder.date} ${reminder.time} vs ${currentDate} ${currentTime}`);
                 // Check if time and date match
                 if (reminder.time === currentTime && reminder.date === currentDate) {
                     dueReminders.push({
@@ -110,9 +117,13 @@ class ReminderStorage {
 
     cleanupOldReminders() {
         const reminders = this.loadReminders();
-        const now = new Date();
-        const currentDate = this.formatDate(now);
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        
+        // Get current time in IST (UTC+5:30)
+        const nowUTC = new Date();
+        const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
+        
+        const currentDate = this.formatDate(nowIST);
+        const currentTime = `${nowIST.getUTCHours().toString().padStart(2, '0')}:${nowIST.getUTCMinutes().toString().padStart(2, '0')}`;
         
         let cleaned = 0;
 
@@ -152,9 +163,10 @@ class ReminderStorage {
     }
 
     formatDate(date) {
-        const year = date.getFullYear();
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const day = date.getDate().toString().padStart(2, '0');
+        // Use UTC methods since we're already passing an IST-adjusted date
+        const year = date.getUTCFullYear();
+        const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+        const day = date.getUTCDate().toString().padStart(2, '0');
         return `${year}-${month}-${day}`;
     }
 }

@@ -105,7 +105,12 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
   * "remind me in 2 hours about the meeting" → EXECUTE:REMIND:me|18:30|2025-10-29|about the meeting
   * "remind everyone tomorrow at 10 am" → EXECUTE:REMIND:everyone|10:00|2025-10-30|reminder message
   * "set reminder for 5 pm today" → EXECUTE:REMIND:|17:00|2025-10-29|reminder
-  IMPORTANT: Always parse time to 24-hour HH:MM format. Calculate date based on "today", "tomorrow", or specific dates. If "in X hours/minutes", calculate from current time.
+  IMPORTANT: 
+  - Always parse time to 24-hour HH:MM format
+  - Use IST timezone (UTC+5:30) for all date/time calculations
+  - Calculate date based on "today", "tomorrow", or specific dates in IST
+  - If "in X hours/minutes", calculate from current IST time
+  - For "today", use current IST date; for "tomorrow", add 1 day to IST date
 - Otherwise respond naturally with your personality
 
 Now respond to: ${userMessage}`;
