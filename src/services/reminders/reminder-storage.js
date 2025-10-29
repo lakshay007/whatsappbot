@@ -102,11 +102,13 @@ class ReminderStorage {
         const initialLength = reminders[chatId].length;
         reminders[chatId] = reminders[chatId].filter(r => r.id !== reminderId);
         
+        // Check if something was removed BEFORE deleting the key
+        const removed = reminders[chatId].length < initialLength;
+        
         if (reminders[chatId].length === 0) {
             delete reminders[chatId];
         }
 
-        const removed = initialLength > reminders[chatId].length || !reminders[chatId];
         if (removed) {
             this.saveReminders(reminders);
             console.log(`🗑️ Reminder removed: ${reminderId} from ${chatId}`);
