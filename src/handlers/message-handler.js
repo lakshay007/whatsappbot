@@ -238,7 +238,10 @@ class MessageHandler {
 
     async executeNaturalCommand(message, aiResponse, chat, senderName) {
         try {
-            const [_, command, params] = aiResponse.split(':');
+            // Split only on first 2 colons to preserve time format (e.g., 16:30)
+            const parts = aiResponse.split(':');
+            const command = parts[1]; // EXECUTE:COMMAND:params
+            const params = parts.slice(2).join(':'); // Rejoin everything after COMMAND, preserving colons in time
             
             switch(command) {
                 case 'KICK':
@@ -471,7 +474,7 @@ class MessageHandler {
             const parts = params.split('|');
             
             if (parts.length < 3) {
-                return message.reply('I need more details for the reminder. Try: "remind harsh at 4:45 pm to tell me the mess menu"');
+                return message.reply('I need more details for the reminder. Try: "remind me at 4:30 pm to give laundry"');
             }
 
             let targetUser = null;
@@ -530,7 +533,7 @@ class MessageHandler {
 
         } catch (error) {
             console.error('❌ Error setting reminder via natural language:', error);
-            await message.reply("Had trouble setting that reminder. Try something like: 'remind harsh at 4:45 pm to tell me the mess menu'");
+            await message.reply("Had trouble setting that reminder. Try something like: 'remind me at 4:30 pm to give laundry'");
         }
     }
 
