@@ -256,6 +256,9 @@ class MessageHandler {
                 case 'AVATAR':
                     await this.executeAvatarCommand(message, params);
                     break;
+                case 'REMIND':
+                    await this.executeReminderCommand(message, params, chat);
+                    break;
                 default:
                     await message.reply("I understood you want to do something but I'm not sure what. Try using the direct commands!");
             }
@@ -459,6 +462,104 @@ class MessageHandler {
             } else {
                 await message.reply("Failed to get the avatar. The user might have privacy settings enabled.");
             }
+        }
+    }
+
+    async executeReminderCommand(message, params, chat) {
+        try {
+            // Parse params: "targetUser|time|date|message" or "time|date|message" if no target
+            const parts = params.split('|');
+            
+            if (parts.length < 3) {
+                return message.reply('I need more details for the reminder. Try: "remind harsh at 4:45 pm to tell me the mess menu"');
+            }
+
+            let targetUser = null;
+            let time, date, reminderMessage;
+
+            // Check if first part looks like time (HH:MM format)
+            if (parts[0].match(/^\d{1,2}:\d{2}$/)) {
+                // No target user specified
+                [time, date, ...reminderMessage] = parts;
+            } else {
+                // Target user specified
+                [targetUser, time, date, ...reminderMessage] = parts;
+            }
+
+            reminderMessage = reminderMessage.join('|').trim();
+
+            if (!reminderMessage) {
+                return message.reply('I need a message for the reminder. What should I remind about?');
+            }
+
+            // Validate time format
+            if (!time.match(/^\d{1,2}:\d{2}$/)) {
+                return message.reply('Invalid time format. Use HH:MM format like 16:45 or 4:45');
+            }
+
+            // Validate date format
+            if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                return message.reply('Invalid date format. Should be YYYY-MM-DD');
+            }
+
+            // Check if the reminder is in the past
+            const reminderDateTime = new Date(`${date}T${time}:00`);
+            if (reminderDateTime <= new Date()) {
+                return message.reply("Can't set a reminder in the past! Try a future time.");
+            }
+
+            // Store the reminder
+            const ReminderStorage = require('../services/reminders/reminder-storage');
+            const storage = new ReminderStorage();
+            
+            const reminder = storage.addReminder(chat.id._serialized, {
+                targetUser,
+                time,
+                date,
+                message: reminderMessage,
+                setBy: message.author || message.from
+            });
+
+            // Format friendly response
+            const timeDisplay = this.formatTimeDisplay(time);
+            const dateDisplay = this.formatDateDisplay(date);
+            const targetDisplay = targetUser ? ` for ${targetUser}` : '';
+            
+            await message.reply(`Got it! I'll remind${targetDisplay} on ${dateDisplay} at ${timeDisplay}: "${reminderMessage}"`);
+            console.log(`⏰ Reminder set via natural language: ${reminder.id}`);
+
+        } catch (error) {
+            console.error('❌ Error setting reminder via natural language:', error);
+            await message.reply("Had trouble setting that reminder. Try something like: 'remind harsh at 4:45 pm to tell me the mess menu'");
+        }
+    }
+
+    formatTimeDisplay(time24) {
+        const [hours, minutes] = time24.split(':').map(Number);
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const hours12 = hours % 12 || 12;
+        return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+    }
+
+    formatDateDisplay(dateStr) {
+        const date = new Date(dateStr);
+        const today = new Date();
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        // Compare dates (ignore time)
+        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const tomorrowOnly = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate());
+
+        if (dateOnly.getTime() === todayOnly.getTime()) {
+            return 'today';
+        } else if (dateOnly.getTime() === tomorrowOnly.getTime()) {
+            return 'tomorrow';
+        } else {
+            // Format as "Oct 29"
+            const options = { month: 'short', day: 'numeric' };
+            return date.toLocaleDateString('en-US', options);
         }
     }
 

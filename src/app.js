@@ -6,6 +6,7 @@ const DocumentStorageService = require('./services/documents/storage-service');
 const WhatsAppClientService = require('./services/whatsapp/client-service');
 const HealthMonitorService = require('./services/health/monitor-service');
 const RecoveryService = require('./services/health/recovery-service');
+const ReminderScheduler = require('./services/reminders/reminder-scheduler');
 
 // Commands
 const CommandRegistry = require('./commands/base/registry');
@@ -50,6 +51,9 @@ class WhatsAppBot {
         // Health Monitoring
         this.healthMonitor = new HealthMonitorService();
         this.recoveryService = new RecoveryService();
+        
+        // Reminder Scheduler (initialized but not started yet - needs WhatsApp client to be ready)
+        this.reminderScheduler = null;
         
         // Command Registry
         this.commandRegistry = new CommandRegistry();
@@ -96,6 +100,12 @@ class WhatsAppBot {
         // WhatsApp events
         this.whatsappService.onReady(() => {
             this.healthMonitor.startMonitoring();
+            
+            // Start reminder scheduler when WhatsApp is ready
+            const client = this.whatsappService.getClient();
+            this.reminderScheduler = new ReminderScheduler(client);
+            this.reminderScheduler.start();
+            
             this.isInitialized = true;
         });
         
@@ -168,6 +178,12 @@ class WhatsAppBot {
         console.log('🛑 Shutting down bot...');
         
         this.healthMonitor.stopMonitoring();
+        
+        // Stop reminder scheduler if running
+        if (this.reminderScheduler) {
+            this.reminderScheduler.stop();
+        }
+        
         this.whatsappService.destroy();
         
         console.log('✅ Bot shutdown complete');

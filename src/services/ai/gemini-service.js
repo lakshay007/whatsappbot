@@ -99,6 +99,13 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 - "multi/multiple choice poll" → EXECUTE:POLL:-m question|option1|option2
 - "welcome someone" → EXECUTE:WELCOME:username
 - "show avatar/profile pic of someone" → EXECUTE:AVATAR:username (need @mention)
+- "remind [someone] [at/on/in] [time] [to/about] [message]" → EXECUTE:REMIND:targetUser|HH:MM|YYYY-MM-DD|message
+  Examples:
+  * "remind harsh at 4:45 pm to tell me the mess menu" → EXECUTE:REMIND:harsh|16:45|2025-10-29|tell me the mess menu
+  * "remind me in 2 hours about the meeting" → EXECUTE:REMIND:me|18:30|2025-10-29|about the meeting
+  * "remind everyone tomorrow at 10 am" → EXECUTE:REMIND:everyone|10:00|2025-10-30|reminder message
+  * "set reminder for 5 pm today" → EXECUTE:REMIND:|17:00|2025-10-29|reminder
+  IMPORTANT: Always parse time to 24-hour HH:MM format. Calculate date based on "today", "tomorrow", or specific dates. If "in X hours/minutes", calculate from current time.
 - Otherwise respond naturally with your personality
 
 Now respond to: ${userMessage}`;
