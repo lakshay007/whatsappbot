@@ -29,6 +29,14 @@ class Command {
         const senderId = message.author || message.from;
         const botId = context.whatsappService.getClient().info.wid._serialized;
 
+        // 🔍 TEMPORARY DEBUG - Remove after fixing owner ID issue
+        console.log('🔍 DEBUG - Sender ID:', senderId);
+        console.log('🔍 DEBUG - Owner ID from config:', this.constants.OWNER_ID);
+        console.log('🔍 DEBUG - IDs match:', senderId === this.constants.OWNER_ID);
+        console.log('🔍 DEBUG - Is group chat:', chat.isGroup);
+        console.log('🔍 DEBUG - Command:', this.name);
+        console.log('---');
+
         // Check if command is group-only
         if (this.options.groupOnly && !chat.isGroup) {
             return { allowed: false, message: permissions.getPermissionErrorMessage('group_only') };
