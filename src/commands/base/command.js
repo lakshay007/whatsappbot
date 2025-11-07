@@ -37,20 +37,10 @@ class Command {
             try {
                 const contact = await message.getContact();
                 actualUserId = contact.id._serialized;
-                console.log('🔍 DEBUG - Converted @lid to actual ID:', actualUserId);
             } catch (error) {
                 console.error('❌ Error getting contact for permission check:', error);
             }
         }
-
-        // 🔍 TEMPORARY DEBUG - Remove after fixing owner ID issue
-        console.log('🔍 DEBUG - Sender ID:', senderId);
-        console.log('🔍 DEBUG - Actual User ID:', actualUserId);
-        console.log('🔍 DEBUG - Owner ID from config:', this.constants.OWNER_ID);
-        console.log('🔍 DEBUG - IDs match:', actualUserId === this.constants.OWNER_ID);
-        console.log('🔍 DEBUG - Is group chat:', chat.isGroup);
-        console.log('🔍 DEBUG - Command:', this.name);
-        console.log('---');
 
         // Check if command is group-only
         if (this.options.groupOnly && !chat.isGroup) {
