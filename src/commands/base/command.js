@@ -29,10 +29,25 @@ class Command {
         const senderId = message.author || message.from;
         const botId = context.whatsappService.getClient().info.wid._serialized;
 
+        // Get the actual user ID (handles @lid group participant IDs)
+        let actualUserId = senderId;
+        
+        // If it's a group message with @lid format, get the real user ID
+        if (chat.isGroup && senderId.includes('@lid')) {
+            try {
+                const contact = await message.getContact();
+                actualUserId = contact.id._serialized;
+                console.log('🔍 DEBUG - Converted @lid to actual ID:', actualUserId);
+            } catch (error) {
+                console.error('❌ Error getting contact for permission check:', error);
+            }
+        }
+
         // 🔍 TEMPORARY DEBUG - Remove after fixing owner ID issue
         console.log('🔍 DEBUG - Sender ID:', senderId);
+        console.log('🔍 DEBUG - Actual User ID:', actualUserId);
         console.log('🔍 DEBUG - Owner ID from config:', this.constants.OWNER_ID);
-        console.log('🔍 DEBUG - IDs match:', senderId === this.constants.OWNER_ID);
+        console.log('🔍 DEBUG - IDs match:', actualUserId === this.constants.OWNER_ID);
         console.log('🔍 DEBUG - Is group chat:', chat.isGroup);
         console.log('🔍 DEBUG - Command:', this.name);
         console.log('---');
@@ -43,7 +58,7 @@ class Command {
         }
 
         // Check if user is owner (owner can do anything)
-        if (permissions.isOwner(senderId)) {
+        if (permissions.isOwner(actualUserId)) {
             return { allowed: true };
         }
 
@@ -53,7 +68,7 @@ class Command {
         }
 
         // Check if command requires admin permissions
-        if (this.options.adminOnly && !permissions.canExecuteAdminCommand(senderId, chat)) {
+        if (this.options.adminOnly && !permissions.canExecuteAdminCommand(actualUserId, chat)) {
             return { allowed: false, message: permissions.getPermissionErrorMessage('admin') };
         }
 
