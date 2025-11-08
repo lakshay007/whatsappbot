@@ -113,15 +113,43 @@ class MessageHandler {
         
         if (replyCheck.isReply) {
             // Handle reply to bot
-            const originalMessage = replyCheck.quotedMessage.body || replyCheck.quotedMessage.caption || 'previous message';
-            console.log(`🔄 Replying with context from: "${originalMessage}"`);
-            console.log(`🤔 Generating AI response for ${senderName}...`);
-            
-            aiResponse = await this.context.aiService.generateResponse(
-                message.body, 
-                senderName, 
-                originalMessage
-            );
+            // Check if the bot's message has media (PDF/image) to analyze
+            if (replyCheck.quotedMessage.hasMedia) {
+                console.log(`🖼️ Processing reply to bot's media message from ${senderName}...`);
+                
+                mediaData = await this.mediaProcessor.downloadAndProcessMedia(replyCheck.quotedMessage);
+                
+                if (mediaData && mediaData.error) {
+                    await this.handleMediaError(message, mediaData);
+                    return;
+                }
+                
+                if (mediaData) {
+                    // Reply with media analysis
+                    console.log(`🤔 Generating multimodal AI response for ${senderName}...`);
+                    aiResponse = await this.context.aiService.generateResponse(
+                        message.body, 
+                        senderName, 
+                        null, 
+                        'media_reply', 
+                        mediaData
+                    );
+                } else {
+                    await message.reply(`I couldn't analyze that media. Try sending it again.`);
+                    return;
+                }
+            } else {
+                // Regular text reply
+                const originalMessage = replyCheck.quotedMessage.body || replyCheck.quotedMessage.caption || 'previous message';
+                console.log(`🔄 Replying with context from: "${originalMessage}"`);
+                console.log(`🤔 Generating AI response for ${senderName}...`);
+                
+                aiResponse = await this.context.aiService.generateResponse(
+                    message.body, 
+                    senderName, 
+                    originalMessage
+                );
+            }
             
         } else if (mentionCheck) {
             // Handle mention
