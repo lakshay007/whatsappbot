@@ -1,6 +1,5 @@
 const ModelRotation = require('./model-rotation');
 const config = require('../../config');
-const { functionDeclarations, functionImplementations } = require('../../utils/function-tools');
 
 class GeminiService {
     constructor() {
@@ -8,8 +7,6 @@ class GeminiService {
         this.constants = config.getConstants();
         this.modelRotation = new ModelRotation(this.geminiConfig.getModelRotation());
         this.groundingTool = this.geminiConfig.getGroundingTool();
-        this.functionDeclarations = functionDeclarations;
-        this.functionImplementations = functionImplementations;
     }
 
     buildMultimodalPrompt(userMessage, senderName, mediaType, contextType = 'reply') {
@@ -160,53 +157,13 @@ Now respond to: ${userMessage}`;
                 const current = this.modelRotation.getCurrentModelInfo();
                 console.log(`🔍 Attempt ${attemptCount + 1}/${this.modelRotation.getTotalModelCount()}: ${current.model} (${current.keyName})`);
                 
-                // Build tools array with both grounding and function calling
-                const tools = [
-                    this.groundingTool,
-                    { functionDeclarations: this.functionDeclarations }
-                ];
-                
                 const requestConfig = {
                     contents: [{ parts: contentParts }],
-                    tools: tools
+                    tools: [this.groundingTool]
                 };
                 
                 const result = await model.generateContent(requestConfig);
                 const response = await result.response;
-                
-                // Check for function calls
-                const functionCall = this.extractFunctionCall(response);
-                
-                if (functionCall) {
-                    console.log(`🔧 Function call detected: ${functionCall.name}`);
-                    console.log(`📋 Parameters:`, JSON.stringify(functionCall.args, null, 2));
-                    
-                    // Execute the function
-                    const functionResult = await this.executeFunctionCall(functionCall);
-                    console.log(`✅ Function result:`, JSON.stringify(functionResult, null, 2));
-                    
-                    // Send function result back to the model for a natural language response
-                    const finalResponse = await this.generateResponseWithFunctionResult(
-                        model,
-                        contentParts,
-                        tools,
-                        functionCall,
-                        functionResult
-                    );
-                    
-                    // Check if Google Search was used
-                    this.logGroundingInfo(finalResponse);
-                    
-                    // Extract sources from grounding metadata
-                    const sources = this.extractSources(finalResponse);
-                    
-                    console.log(`✅ Success with ${current.model} (${current.keyName}) - with function calling`);
-                    return {
-                        text: finalResponse.text().trim(),
-                        sources: sources,
-                        functionUsed: functionCall.name
-                    };
-                }
                 
                 // Check if Google Search was used
                 this.logGroundingInfo(response);
@@ -249,67 +206,6 @@ Now respond to: ${userMessage}`;
             text: "Hey! I'm having trouble thinking right now. Try again?",
             sources: []
         };
-    }
-
-    extractFunctionCall(response) {
-        const candidates = response.candidates;
-        if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
-            for (const part of candidates[0].content.parts) {
-                if (part.functionCall) {
-                    return {
-                        name: part.functionCall.name,
-                        args: part.functionCall.args
-                    };
-                }
-            }
-        }
-        return null;
-    }
-
-    async executeFunctionCall(functionCall) {
-        const { name, args } = functionCall;
-        
-        if (this.functionImplementations[name]) {
-            try {
-                const result = await this.functionImplementations[name](args);
-                return result;
-            } catch (error) {
-                console.error(`❌ Error executing function ${name}:`, error);
-                return { error: `Failed to execute ${name}: ${error.message}` };
-            }
-        } else {
-            console.error(`❌ Function ${name} not found in implementations`);
-            return { error: `Function ${name} is not available` };
-        }
-    }
-
-    async generateResponseWithFunctionResult(model, originalContentParts, tools, functionCall, functionResult) {
-        // Build the conversation history with function call and result
-        const requestConfig = {
-            contents: [
-                { parts: originalContentParts },
-                {
-                    parts: [{
-                        functionCall: {
-                            name: functionCall.name,
-                            args: functionCall.args
-                        }
-                    }]
-                },
-                {
-                    parts: [{
-                        functionResponse: {
-                            name: functionCall.name,
-                            response: functionResult
-                        }
-                    }]
-                }
-            ],
-            tools: tools
-        };
-
-        const result = await model.generateContent(requestConfig);
-        return result.response;
     }
 
     extractSources(response) {
