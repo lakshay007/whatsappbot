@@ -259,6 +259,9 @@ class MessageHandler {
                 case 'AVATAR':
                     await this.executeAvatarCommand(message, params);
                     break;
+                case 'MEET':
+                    await this.executeMeetCommand(message);
+                    break;
                 case 'REMIND':
                     await this.executeReminderCommand(message, params, chat);
                     break;
@@ -465,6 +468,17 @@ class MessageHandler {
             } else {
                 await message.reply("Failed to get the avatar. The user might have privacy settings enabled.");
             }
+        }
+    }
+
+    async executeMeetCommand(message) {
+        try {
+            const meetLink = 'https://meet.google.com/new';
+            await message.reply(`Google Meet created!\n\n${meetLink}`);
+            console.log('🎥 Meet created via natural language');
+        } catch (error) {
+            console.error('❌ Error creating meet:', error);
+            await message.reply('Sorry, there was an error creating the meet. Please try again.');
         }
     }
 

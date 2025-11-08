@@ -99,6 +99,7 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
 - "multi/multiple choice poll" → EXECUTE:POLL:-m question|option1|option2
 - "welcome someone" → EXECUTE:WELCOME:username
 - "show avatar/profile pic of someone" → EXECUTE:AVATAR:username (need @mention)
+- "create/make/generate google meet/meeting/gmeet" → EXECUTE:MEET
 - "remind [someone] [at/on/in] [time] [to/about] [message]" → EXECUTE:REMIND:targetUser|HH:MM|YYYY-MM-DD|message
   Examples:
   * "remind me at 4:30 pm to give laundry" → EXECUTE:REMIND:me|16:30|2025-10-29|give laundry
