@@ -196,10 +196,10 @@ class MessageHandler {
         }
         
         // Check if AI wants to execute a command
-        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z]+):(.+)/);
+        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z]+):?(.*)$/);
         if (executeMatch) {
             const [fullMatch, command, params] = executeMatch;
-            const executeCommand = `EXECUTE:${command}:${params}`;
+            const executeCommand = params ? `EXECUTE:${command}:${params}` : `EXECUTE:${command}`;
             console.log(`🎯 Detected natural command: ${executeCommand}`);
             await this.executeNaturalCommand(message, executeCommand, chat, senderName);
         } else {
