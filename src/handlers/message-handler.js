@@ -34,7 +34,9 @@ class MessageHandler {
             }
 
             // Handle owner-specific functionality (master search number selection) - CHECK BEFORE REPLIES
-            if (this.isOwnerNumberSelection(message)) {
+            const isNumberSelection = this.isOwnerNumberSelection(message);
+            if (isNumberSelection) {
+                console.log(`✅ Detected number selection, handling...`);
                 await this.handleOwnerNumberSelection(message);
                 return;
             }
@@ -575,14 +577,32 @@ class MessageHandler {
     isOwnerNumberSelection(message) {
         const senderId = message.author || message.from;
         const isOwner = senderId === this.constants.OWNER_ID;
-        const isNumber = message.body.match(/^\d+$/);
+        
+        // Extract just the number, even if message has @mentions or extra text
+        const bodyText = message.body.trim();
+        
+        // Check if message is ONLY a number (original behavior)
+        const isJustNumber = bodyText.match(/^\d+$/);
+        
+        // Also check if message is "@chotu 5" or "@chotu5" style
+        const mentionWithNumber = bodyText.match(/^@?\w+\s*(\d+)$/);
+        
         const hasSearchResults = !!this.ownerLastMasterSearch;
         
-        
+        // Debug logging
+        if (isOwner && (isJustNumber || mentionWithNumber)) {
+            console.log(`🔍 Number selection check:`, {
+                bodyText,
+                isJustNumber: !!isJustNumber,
+                mentionWithNumber: !!mentionWithNumber,
+                hasSearchResults,
+                searchResultsAge: hasSearchResults ? Date.now() - this.ownerLastMasterSearch.timestamp : null
+            });
+        }
         
         return (
             isOwner &&
-            isNumber &&
+            (isJustNumber || mentionWithNumber) &&
             hasSearchResults
         );
     }
@@ -600,7 +620,14 @@ class MessageHandler {
             return;
         }
         
-        const selectedNumber = parseInt(message.body);
+        // Extract the number from message (handles "5", "@chotu 5", etc.)
+        const bodyText = message.body.trim();
+        let numberMatch = bodyText.match(/^\d+$/);
+        if (!numberMatch) {
+            numberMatch = bodyText.match(/^@?\w+\s*(\d+)$/);
+        }
+        const selectedNumber = parseInt(numberMatch ? (numberMatch[1] || numberMatch[0]) : bodyText);
+        
         const maxDisplayed = Math.min(this.ownerLastMasterSearch.results.length, 10);
         
         if (selectedNumber < 1 || selectedNumber > maxDisplayed) {
@@ -610,6 +637,13 @@ class MessageHandler {
         
         try {
             const selectedDoc = this.ownerLastMasterSearch.results[selectedNumber - 1];
+            
+            console.log(`📋 Selected doc info:`, {
+                filename: selectedDoc.filename,
+                path: selectedDoc.path,
+                size: selectedDoc.size,
+                sizeInMB: Math.round(selectedDoc.size / 1024 / 1024)
+            });
             
             // Check file size (WhatsApp limit)
             if (selectedDoc.size > this.constants.MAX_FILE_SIZE) {
@@ -623,6 +657,8 @@ class MessageHandler {
             const { MessageMedia } = require('whatsapp-web.js');
             const media = MessageMedia.fromFilePath(selectedDoc.path);
             
+            console.log(`📦 Media object created, sending to chat...`);
+            
             await chat.sendMessage(media, {
                 caption: `🔍 ${selectedDoc.filename}\n🔢 Selection ${selectedNumber} from "${this.ownerLastMasterSearch.query}"`
             });
@@ -634,7 +670,12 @@ class MessageHandler {
             
         } catch (error) {
             console.error('❌ Error sending selected master search document:', error);
-            await message.reply('Sorry, there was an error sending the selected document. Please try again.');
+            console.error('❌ Error details:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
+            await message.reply(`Sorry, there was an error sending the selected document: ${error.message}`);
         }
     }
 
