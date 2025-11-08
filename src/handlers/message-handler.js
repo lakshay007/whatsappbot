@@ -196,10 +196,10 @@ class MessageHandler {
         }
         
         // Check if AI wants to execute a command
-        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z]+):?(.*)$/);
+        const executeMatch = aiResponse.text.match(/EXECUTE:([A-Z]+):(.+)/);
         if (executeMatch) {
             const [fullMatch, command, params] = executeMatch;
-            const executeCommand = params ? `EXECUTE:${command}:${params}` : `EXECUTE:${command}`;
+            const executeCommand = `EXECUTE:${command}:${params}`;
             console.log(`🎯 Detected natural command: ${executeCommand}`);
             await this.executeNaturalCommand(message, executeCommand, chat, senderName);
         } else {
@@ -258,9 +258,6 @@ class MessageHandler {
                     break;
                 case 'AVATAR':
                     await this.executeAvatarCommand(message, params);
-                    break;
-                case 'MEET':
-                    await this.executeMeetCommand(message);
                     break;
                 case 'REMIND':
                     await this.executeReminderCommand(message, params, chat);
@@ -468,17 +465,6 @@ class MessageHandler {
             } else {
                 await message.reply("Failed to get the avatar. The user might have privacy settings enabled.");
             }
-        }
-    }
-
-    async executeMeetCommand(message) {
-        try {
-            const meetLink = 'https://meet.google.com/new';
-            await message.reply(`Google Meet created!\n\n${meetLink}`);
-            console.log('🎥 Meet created via natural language');
-        } catch (error) {
-            console.error('❌ Error creating meet:', error);
-            await message.reply('Sorry, there was an error creating the meet. Please try again.');
         }
     }
 
