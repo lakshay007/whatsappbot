@@ -180,8 +180,13 @@ class SindhiMenuService {
             return menuResult.message || 'Could not fetch menu';
         }
         
+        // Format the actual requested date nicely (e.g., "Nov 12")
+        const requestedDate = new Date(menuResult.date);
+        const dateOptions = { month: 'short', day: 'numeric' };
+        const formattedDate = requestedDate.toLocaleDateString('en-US', dateOptions);
+        
         let message = `*Sindhi Mess Menu*\n`;
-        message += `${menuResult.day}, ${menuResult.displayDate}\n\n`;
+        message += `${menuResult.day}, ${formattedDate}\n\n`;
         
         // If single meal
         if (menuResult.meal && menuResult.mealData) {
