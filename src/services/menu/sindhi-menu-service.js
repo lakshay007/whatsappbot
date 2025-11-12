@@ -83,7 +83,9 @@ class SindhiMenuService {
             
             // Check if it's Sunday (Sindhi is closed on Sundays)
             const dateObj = new Date(date);
-            if (dateObj.getDay() === 0) {
+            const dayOfWeek = dateObj.getDay();
+            
+            if (dayOfWeek === 0) {
                 return {
                     success: false,
                     error: 'closed',
@@ -91,14 +93,25 @@ class SindhiMenuService {
                 };
             }
             
-            // Find the menu for the specified date
-            const dayMenu = menuData.menu[date];
+            // Sindhi has a fixed weekly menu, so we need to find the menu by day of week
+            // Get the day name for the requested date
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const requestedDay = dayNames[dayOfWeek];
+            
+            // Find any menu entry that matches this day of the week
+            let dayMenu = null;
+            for (const [menuDate, menuEntry] of Object.entries(menuData.menu)) {
+                if (menuEntry.day === requestedDay) {
+                    dayMenu = menuEntry;
+                    break;
+                }
+            }
             
             if (!dayMenu) {
                 return {
                     success: false,
                     error: 'no_menu',
-                    message: `No menu found for ${date}. The menu might only be available for this week.`
+                    message: `No menu found for ${requestedDay}. The menu might only be available for weekdays.`
                 };
             }
             
