@@ -7,6 +7,7 @@ const WhatsAppClientService = require('./services/whatsapp/client-service');
 const HealthMonitorService = require('./services/health/monitor-service');
 const RecoveryService = require('./services/health/recovery-service');
 const ReminderScheduler = require('./services/reminders/reminder-scheduler');
+const SindhiMenuService = require('./services/menu/sindhi-menu-service');
 
 // Commands
 const CommandRegistry = require('./commands/base/registry');
@@ -52,6 +53,9 @@ class WhatsAppBot {
         this.healthMonitor = new HealthMonitorService();
         this.recoveryService = new RecoveryService();
         
+        // Menu Service
+        this.menuService = new SindhiMenuService();
+        
         // Reminder Scheduler (initialized but not started yet - needs WhatsApp client to be ready)
         this.reminderScheduler = null;
         
@@ -69,6 +73,7 @@ class WhatsAppBot {
             whatsappService: this.whatsappService,
             healthMonitor: this.healthMonitor,
             recoveryService: this.recoveryService,
+            menuService: this.menuService,
             commandRegistry: this.commandRegistry,
             messageHandler: this.messageHandler,
             

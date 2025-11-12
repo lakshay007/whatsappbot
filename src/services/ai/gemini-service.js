@@ -111,6 +111,17 @@ If user wants to execute bot commands naturally, respond with EXECUTE format:
   - Calculate date based on "today", "tomorrow", or specific dates in IST
   - If "in X hours/minutes", calculate from current IST time
   - For "today", use current IST date; for "tomorrow", add 1 day to IST date
+- "what's on menu/lunch/dinner at sindhi" → EXECUTE:MENU:date|meal
+  Examples:
+  * "whats in lunch at sindhi today" → EXECUTE:MENU:today|lunch
+  * "what's for dinner at sindhi" → EXECUTE:MENU:today|dinner
+  * "sindhi menu today" → EXECUTE:MENU:today|
+  * "whats on menu tomorrow at sindhi" → EXECUTE:MENU:tomorrow|
+  * "sindhi lunch menu monday" → EXECUTE:MENU:monday|lunch
+  IMPORTANT:
+  - date can be: "today", "tomorrow", day names (monday, tuesday, etc.)
+  - meal can be: "lunch", "dinner", or empty (shows both)
+  - Always include the pipe separator even if meal is empty
 - Otherwise respond naturally with your personality
 
 Now respond to: ${userMessage}`;

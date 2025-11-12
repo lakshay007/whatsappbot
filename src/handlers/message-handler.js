@@ -290,6 +290,9 @@ class MessageHandler {
                 case 'REMIND':
                     await this.executeReminderCommand(message, params, chat);
                     break;
+                case 'MENU':
+                    await this.executeMenuCommand(message, params, chat);
+                    break;
                 default:
                     await message.reply("I understood you want to do something but I'm not sure what. Try using the direct commands!");
             }
@@ -567,6 +570,57 @@ class MessageHandler {
         } catch (error) {
             console.error('❌ Error setting reminder via natural language:', error);
             await message.reply("Had trouble setting that reminder. Try something like: 'remind me at 4:30 pm to give laundry'");
+        }
+    }
+
+    async executeMenuCommand(message, params, chat) {
+        try {
+            // Parse params: "date|meal" (e.g., "today|lunch" or "tomorrow|")
+            const parts = params.split('|');
+            
+            if (parts.length < 1) {
+                return message.reply("Need a date for the menu. Try: 'whats for lunch at sindhi today'");
+            }
+
+            let dateStr = parts[0] || 'today';
+            let meal = parts[1] || ''; // Empty means both meals
+
+            // Get the menu service from context
+            if (!this.context.menuService) {
+                return message.reply("Menu service is not available right now. Try again later.");
+            }
+
+            console.log(`🍽️ Fetching Sindhi menu: date=${dateStr}, meal=${meal || 'both'}`);
+            
+            // Parse natural language date
+            const date = this.context.menuService.parseNaturalDate(dateStr);
+            
+            // Fetch menu
+            const menuResult = await this.context.menuService.getMenu(date, meal || null);
+            
+            if (!menuResult.success) {
+                let errorMsg = "Couldn't fetch the Sindhi menu right now.";
+                
+                if (menuResult.error === 'closed') {
+                    errorMsg = menuResult.message; // "Sindhi Mess is closed on Sundays"
+                } else if (menuResult.error === 'no_menu') {
+                    errorMsg = `No menu available for that date. The menu might only be available for this week.`;
+                } else if (menuResult.error === 'invalid_meal') {
+                    errorMsg = "Invalid meal type. Use 'lunch' or 'dinner'.";
+                }
+                
+                return message.reply(errorMsg);
+            }
+            
+            // Format and send the menu
+            const formattedMenu = this.context.menuService.formatMenuForMessage(menuResult);
+            await message.reply(formattedMenu);
+            
+            console.log(`✅ Sent Sindhi menu for ${menuResult.day}, ${menuResult.displayDate}`);
+            
+        } catch (error) {
+            console.error('❌ Error fetching menu via natural language:', error);
+            await message.reply("Had trouble getting the Sindhi menu. The service might be down.");
         }
     }
 
