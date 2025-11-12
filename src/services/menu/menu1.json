@@ -1,0 +1,91 @@
+{
+    "menu": {
+      "Monday": {
+        "lunch": {
+          "veg": "Paneer masala",
+          "vegSides": ["Red chana", "Dal", "Rice", "Chapathi"],
+          "nonVeg": "Chicken masala"
+        },
+        "dinner": {
+          "veg": "Paneer Tikka masala",
+          "vegSides": ["Rajma masala", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Chicken Gravy"
+        }
+      },
+      "Tuesday": {
+        "lunch": {
+          "veg": "Paneer Kofta",
+          "vegSides": ["Aloomatar", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Butter Chicken masala"
+        },
+        "dinner": {
+          "veg": "Paneer Bhurji Channa masala",
+          "vegSides": [
+            "Dal",
+            "Puri",
+            "Chapati",
+            "Kheer",
+            "Rice",
+            "Papad"
+          ]
+        }
+      },
+      "Wednesday": {
+        "lunch": {
+          "veg": "Palak Paneer",
+          "vegSides": ["Aloo Sabzi", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Chicken Gravy"
+        },
+        "dinner": {
+          "veg": "Paneer Tikka Kabab, Veg gravy",
+          "vegSides": ["Soya Aloo Sabzi", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Chicken Kabab Chicken gravy"
+        }
+      },
+      "Thursday": {
+        "lunch": {
+          "veg": "Paneer chilli",
+          "vegSides": ["Dahi Kadhi", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Chicken chilli"
+        },
+        "dinner": {
+          "veg": "Gobi Manchurian, Matar Paneer masala",
+          "vegSides": ["Dal", "Rice", "Chapati", "Suji halwa"]
+        }
+      },
+      "Friday": {
+        "lunch": {
+          "veg": "Paneer bhurji",
+          "vegSides": ["Rajma masala", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Egg bhurji"
+        },
+        "dinner": {
+          "veg": "Paneer Kofta",
+          "vegSides": ["Black dal", "Dal", "Rice", "Chapati"],
+          "nonVeg": "Chicken Gravy"
+        }
+      },
+      "Saturday": {
+        "lunch": {
+          "veg": "Channa masala, Aloo Sabzi",
+          "vegSides": ["Puri/Chapati", "Rice", "Dal", "Papad", "Lime juice"]
+        },
+        "dinner": {
+          "veg": "Aloo Paratha, Sattu Paratha, Chapathi, Mix Sabzi",
+          "vegSides": ["Dal", "Rice"]
+        }
+      }
+    },
+    "extras": {
+      "category": "Extras",
+      "currency": "INR",
+      "items": [
+        { "name": "Butter Milk", "price": 10 },
+        { "name": "Dahi", "price": 10 },
+        { "name": "Fruit Juice", "price": 50 },
+        { "name": "Lassi", "price": 35 },
+        { "name": "Boiled Eggs", "price": 10 },
+        { "name": "Lime", "price": 25 }
+      ]
+    }
+  }

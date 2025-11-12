@@ -1,70 +1,77 @@
-const https = require('https');
+const fs = require('fs');
+const path = require('path');
 
 class SindhiMenuService {
     constructor() {
-        this.apiUrl = 'https://sindhi.coolstuff.work/api/menu';
-        this.cache = null;
-        this.cacheTimestamp = null;
-        this.cacheDuration = 60 * 60 * 1000; // 1 hour cache
+        this.menus = this.loadMenus();
+        this.mealTimes = {
+            lunch: { start: '11:30', end: '14:15' },
+            dinner: { start: '19:00', end: '21:30' }
+        };
+        
+        // Reference date when menu1 starts (update this when the cycle changes)
+        // Format: YYYY-MM-DD (Monday of the week when menu1 is active)
+        this.menu1StartDate = '2025-11-11'; // Nov 11, 2025 is a Tuesday - this week is menu1
     }
 
     /**
-     * Fetch menu from API with caching
+     * Load all menu JSON files
      */
-    async fetchMenu() {
-        // Return cached data if still valid
-        if (this.cache && this.cacheTimestamp && (Date.now() - this.cacheTimestamp < this.cacheDuration)) {
-            console.log('📋 Using cached Sindhi menu data');
-            return this.cache;
-        }
-
+    loadMenus() {
+        const menuDir = __dirname;
+        const menus = {};
+        
         try {
-            console.log('🌐 Fetching fresh Sindhi menu data...');
-            const data = await this.makeHttpRequest(this.apiUrl);
-            const menuData = JSON.parse(data);
-            
-            // Cache the data
-            this.cache = menuData;
-            this.cacheTimestamp = Date.now();
-            
-            console.log(`✅ Sindhi menu fetched successfully (Week: ${menuData.week})`);
-            return menuData;
-        } catch (error) {
-            console.error('❌ Error fetching Sindhi menu:', error);
-            
-            // Return cached data if available, even if expired
-            if (this.cache) {
-                console.log('⚠️ Using expired cache due to fetch error');
-                return this.cache;
+            for (let i = 1; i <= 4; i++) {
+                const menuPath = path.join(menuDir, `menu${i}.json`);
+                const menuData = JSON.parse(fs.readFileSync(menuPath, 'utf8'));
+                menus[i] = menuData;
+                console.log(`✅ Loaded menu${i}.json`);
             }
-            
-            throw new Error('Failed to fetch Sindhi menu and no cache available');
+        } catch (error) {
+            console.error('❌ Error loading menu files:', error);
+            throw new Error('Failed to load menu files');
         }
+        
+        return menus;
     }
 
     /**
-     * Make HTTPS request
+     * Calculate which menu to use based on weeks elapsed from menu1 start date
+     * Cycles through menu1 -> menu2 -> menu3 -> menu4 -> menu1...
      */
-    makeHttpRequest(url) {
-        return new Promise((resolve, reject) => {
-            https.get(url, (res) => {
-                let data = '';
-                
-                res.on('data', (chunk) => {
-                    data += chunk;
-                });
-                
-                res.on('end', () => {
-                    if (res.statusCode === 200) {
-                        resolve(data);
-                    } else {
-                        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-                    }
-                });
-            }).on('error', (err) => {
-                reject(err);
-            });
-        });
+    getCurrentMenuNumber(date = null) {
+        if (!date) {
+            date = this.getTodayIST();
+        }
+        
+        // Calculate number of weeks elapsed from the reference date
+        const referenceDate = new Date(this.menu1StartDate);
+        const currentDate = new Date(date);
+        
+        // Get the start of the week (Monday) for both dates
+        const refMonday = this.getMondayOfWeek(referenceDate);
+        const currentMonday = this.getMondayOfWeek(currentDate);
+        
+        // Calculate weeks difference
+        const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
+        const weeksDiff = Math.floor((currentMonday - refMonday) / millisecondsPerWeek);
+        
+        // Cycle through menus 1-4
+        const menuNumber = ((weeksDiff % 4) + 4) % 4 + 1; // Handle negative numbers
+        
+        console.log(`📅 ${weeksDiff} weeks from reference → Using menu${menuNumber}`);
+        return menuNumber;
+    }
+
+    /**
+     * Get the Monday of the week for a given date
+     */
+    getMondayOfWeek(date) {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+        return new Date(d.setDate(diff));
     }
 
     /**
@@ -74,8 +81,6 @@ class SindhiMenuService {
      */
     async getMenu(date = null, meal = null) {
         try {
-            const menuData = await this.fetchMenu();
-            
             // If no date specified, use today's date in IST
             if (!date) {
                 date = this.getTodayIST();
@@ -93,32 +98,28 @@ class SindhiMenuService {
                 };
             }
             
-            // Sindhi has a fixed weekly menu, so we need to find the menu by day of week
-            // Get the day name for the requested date
+            // Get day name
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const requestedDay = dayNames[dayOfWeek];
+            const dayName = dayNames[dayOfWeek];
             
-            // Find any menu entry that matches this day of the week
-            let dayMenu = null;
-            for (const [menuDate, menuEntry] of Object.entries(menuData.menu)) {
-                if (menuEntry.day === requestedDay) {
-                    dayMenu = menuEntry;
-                    break;
-                }
-            }
+            // Get current menu number based on week
+            const menuNumber = this.getCurrentMenuNumber(date);
+            const menuData = this.menus[menuNumber];
             
-            if (!dayMenu) {
+            if (!menuData || !menuData.menu[dayName]) {
                 return {
                     success: false,
                     error: 'no_menu',
-                    message: `No menu found for ${requestedDay}. The menu might only be available for weekdays.`
+                    message: `No menu found for ${dayName}`
                 };
             }
+            
+            const dayMenu = menuData.menu[dayName];
             
             // If meal specified, return only that meal
             if (meal) {
                 const mealLower = meal.toLowerCase();
-                const mealData = dayMenu.meals[mealLower];
+                const mealData = dayMenu[mealLower];
                 
                 if (!mealData) {
                     return {
@@ -131,8 +132,8 @@ class SindhiMenuService {
                 return {
                     success: true,
                     date: date,
-                    day: dayMenu.day,
-                    displayDate: dayMenu.displayDate,
+                    day: dayName,
+                    menuNumber: menuNumber,
                     meal: mealLower,
                     mealData: mealData
                 };
@@ -142,9 +143,12 @@ class SindhiMenuService {
             return {
                 success: true,
                 date: date,
-                day: dayMenu.day,
-                displayDate: dayMenu.displayDate,
-                meals: dayMenu.meals
+                day: dayName,
+                menuNumber: menuNumber,
+                meals: {
+                    lunch: dayMenu.lunch,
+                    dinner: dayMenu.dinner
+                }
             };
             
         } catch (error) {
@@ -152,7 +156,7 @@ class SindhiMenuService {
             return {
                 success: false,
                 error: 'fetch_failed',
-                message: 'Failed to fetch menu from Sindhi Mess API'
+                message: 'Failed to load menu data'
             };
         }
     }
@@ -190,13 +194,13 @@ class SindhiMenuService {
         
         // If single meal
         if (menuResult.meal && menuResult.mealData) {
-            message += this.formatMeal(menuResult.mealData);
+            message += this.formatMeal(menuResult.meal, menuResult.mealData);
         } 
         // If full day
         else if (menuResult.meals) {
-            message += this.formatMeal(menuResult.meals.lunch);
+            message += this.formatMeal('lunch', menuResult.meals.lunch);
             message += '\n\n';
-            message += this.formatMeal(menuResult.meals.dinner);
+            message += this.formatMeal('dinner', menuResult.meals.dinner);
         }
         
         return message.trim();
@@ -205,20 +209,23 @@ class SindhiMenuService {
     /**
      * Format a single meal section
      */
-    formatMeal(mealData) {
-        let text = `*${mealData.name.toUpperCase()}* (${mealData.startTime} - ${mealData.endTime})\n`;
+    formatMeal(mealName, mealData) {
+        const times = this.mealTimes[mealName.toLowerCase()];
+        let text = `*${mealName.toUpperCase()}* (${times.start} - ${times.end})\n`;
         
-        // Group by sections
-        if (mealData.sections && mealData.sections.length > 0) {
-            mealData.sections.forEach(section => {
-                if (section.items.length > 0) {
-                    text += `*${section.title}:* `;
-                    text += section.items.join(', ') + '\n';
-                }
-            });
-        } else {
-            // Fallback to items list if no sections
-            text += mealData.items.join(', ');
+        // Add veg
+        if (mealData.veg) {
+            text += `*Veg:* ${mealData.veg}\n`;
+        }
+        
+        // Add veg sides
+        if (mealData.vegSides && mealData.vegSides.length > 0) {
+            text += `*Veg Sides:* ${mealData.vegSides.join(', ')}\n`;
+        }
+        
+        // Add non-veg if available
+        if (mealData.nonVeg) {
+            text += `*Non-Veg:* ${mealData.nonVeg}\n`;
         }
         
         return text;
@@ -280,14 +287,12 @@ class SindhiMenuService {
     }
 
     /**
-     * Clear cache (useful for testing)
+     * Reload menus (useful if JSON files are updated)
      */
-    clearCache() {
-        this.cache = null;
-        this.cacheTimestamp = null;
-        console.log('🗑️ Sindhi menu cache cleared');
+    reloadMenus() {
+        this.menus = this.loadMenus();
+        console.log('🔄 Menus reloaded');
     }
 }
 
 module.exports = SindhiMenuService;
-
