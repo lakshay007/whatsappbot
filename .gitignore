@@ -4,3 +4,4 @@ node_modules
 .env
 /documents
 /reminders
+geminiTextapi.md
